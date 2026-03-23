@@ -207,6 +207,7 @@ pub fn aggregate_scores(page_scores: &[(f64, CategoryScores)]) -> (f64, Category
                 technical: 100.0,
                 content: 100.0,
                 geo: 100.0,
+                performance: None,
             },
         );
     }
@@ -215,12 +216,22 @@ pub fn aggregate_scores(page_scores: &[(f64, CategoryScores)]) -> (f64, Category
     let tech = page_scores.iter().map(|(_, c)| c.technical).sum::<f64>() / n;
     let cont = page_scores.iter().map(|(_, c)| c.content).sum::<f64>() / n;
     let geo = page_scores.iter().map(|(_, c)| c.geo).sum::<f64>() / n;
+    let perf_scores: Vec<f64> = page_scores
+        .iter()
+        .filter_map(|(_, c)| c.performance)
+        .collect();
+    let performance = if perf_scores.is_empty() {
+        None
+    } else {
+        Some(perf_scores.iter().sum::<f64>() / perf_scores.len() as f64)
+    };
     (
         score,
         CategoryScores {
             technical: tech,
             content: cont,
             geo,
+            performance,
         },
     )
 }
@@ -406,6 +417,7 @@ mod tests {
                     technical: 80.0,
                     content: 80.0,
                     geo: 80.0,
+                    performance: None,
                 },
             ),
             (
@@ -414,6 +426,7 @@ mod tests {
                     technical: 60.0,
                     content: 60.0,
                     geo: 60.0,
+                    performance: None,
                 },
             ),
         ];

@@ -261,6 +261,7 @@ async fn main() -> Result<()> {
                     technical: p.categories.technical,
                     content: p.categories.content,
                     geo: p.categories.geo,
+                    performance: p.categories.performance,
                 },
             )
         })

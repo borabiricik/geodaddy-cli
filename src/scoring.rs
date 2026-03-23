@@ -21,9 +21,10 @@ pub struct CategoryScores {
     pub technical: f64,
     pub content: f64,
     pub geo: f64,
+    pub performance: Option<f64>, // null in JSON when --vitals not passed (D-05)
 }
 
-fn severity_points(check: &str) -> u32 {
+pub(crate) fn severity_points(check: &str) -> u32 {
     match check {
         "tech-meta-title" | "tech-heading-h1" | "tech-mobile-viewport" | "tech-https"
         | "cont-json-ld" => 10,
@@ -37,6 +38,8 @@ fn severity_points(check: &str) -> u32 {
         "tech-sitemap-xml" | "cont-semantic-html" => 2,
         "geo-listicle" | "geo-schema-stacking" => 5,
         _ if check.starts_with("geo-ai-bot-") => 10,
+        "perf-lcp" => 10,
+        "perf-fcp" | "perf-cls" | "perf-ttfb" | "perf-tbt" => 5,
         _ => 5,
     }
 }
@@ -48,6 +51,8 @@ pub fn calculate_score(results: &[AnalysisResult]) -> (f64, CategoryScores) {
     let mut cont_max: u32 = 0;
     let mut geo_earned: u32 = 0;
     let mut geo_max: u32 = 0;
+    let mut perf_earned: u32 = 0;
+    let mut perf_max: u32 = 0;
 
     for result in results {
         let pts = severity_points(result.check);
@@ -66,6 +71,9 @@ pub fn calculate_score(results: &[AnalysisResult]) -> (f64, CategoryScores) {
         } else if result.check.starts_with("geo-") {
             geo_earned += earned;
             geo_max += pts;
+        } else if result.check.starts_with("perf-") {
+            perf_earned += earned;
+            perf_max += pts;
         }
     }
 
@@ -91,9 +99,18 @@ pub fn calculate_score(results: &[AnalysisResult]) -> (f64, CategoryScores) {
     let cont_score = cont_score.clamp(0.0, 100.0);
     let geo_score = geo_score.clamp(0.0, 100.0);
 
-    let overall = ((tech_score + cont_score + geo_score) / 3.0).clamp(0.0, 100.0);
+    let perf_score: Option<f64> = if perf_max == 0 {
+        None
+    } else {
+        Some((perf_earned as f64 / perf_max as f64 * 100.0).clamp(0.0, 100.0))
+    };
 
-    (overall, CategoryScores { technical: tech_score, content: cont_score, geo: geo_score })
+    let overall = match perf_score {
+        Some(p) => ((tech_score + cont_score + geo_score + p) / 4.0).clamp(0.0, 100.0),
+        None => ((tech_score + cont_score + geo_score) / 3.0).clamp(0.0, 100.0),
+    };
+
+    (overall, CategoryScores { technical: tech_score, content: cont_score, geo: geo_score, performance: perf_score })
 }
 
 #[cfg(test)]
@@ -116,6 +133,7 @@ mod tests {
         assert_eq!(cats.technical, 100.0);
         assert_eq!(cats.content, 100.0);
         assert_eq!(cats.geo, 100.0);
+        assert_eq!(cats.performance, None);
     }
 
     #[test]
@@ -197,5 +215,68 @@ mod tests {
         assert_eq!(cats.content, 100.0);
         assert_eq!(cats.geo, 0.0);
         assert!((overall - 100.0 / 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_performance_category_null_when_absent() {
+        let (_, cats) = calculate_score(&[]);
+        assert_eq!(cats.performance, None);
+    }
+
+    #[test]
+    fn test_performance_category_some_when_perf_checks_present() {
+        let results = vec![make_result("perf-lcp", Status::Pass)];
+        let (_, cats) = calculate_score(&results);
+        assert_eq!(cats.performance, Some(100.0));
+    }
+
+    #[test]
+    fn test_perf_severity_points_lcp_is_10() {
+        assert_eq!(severity_points("perf-lcp"), 10);
+    }
+
+    #[test]
+    fn test_perf_severity_points_others_are_5() {
+        assert_eq!(severity_points("perf-fcp"), 5);
+        assert_eq!(severity_points("perf-cls"), 5);
+        assert_eq!(severity_points("perf-ttfb"), 5);
+        assert_eq!(severity_points("perf-tbt"), 5);
+    }
+
+    #[test]
+    fn test_three_way_average_without_perf() {
+        // tech: fail critical (0%), cont: pass critical (100%), geo: 100% (no geo checks)
+        // overall = (0 + 100 + 100) / 3 = 66.67
+        let results = vec![
+            make_result("tech-meta-title", Status::Fail),
+            make_result("cont-json-ld", Status::Pass),
+        ];
+        let (overall, cats) = calculate_score(&results);
+        assert_eq!(cats.performance, None);
+        assert!((overall - 200.0 / 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_four_way_average_with_perf() {
+        // tech: fail critical (0%), cont: pass critical (100%), geo: 100% (none), perf-lcp Pass (100%)
+        // overall = (0 + 100 + 100 + 100) / 4 = 75.0
+        let results = vec![
+            make_result("tech-meta-title", Status::Fail),
+            make_result("cont-json-ld", Status::Pass),
+            make_result("perf-lcp", Status::Pass),
+        ];
+        let (overall, cats) = calculate_score(&results);
+        assert_eq!(cats.performance, Some(100.0));
+        assert!((overall - 75.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_perf_fail_does_not_affect_tech_cont_geo() {
+        let results = vec![make_result("perf-lcp", Status::Fail)];
+        let (_, cats) = calculate_score(&results);
+        assert_eq!(cats.technical, 100.0);
+        assert_eq!(cats.content, 100.0);
+        assert_eq!(cats.geo, 100.0);
+        assert_eq!(cats.performance, Some(0.0));
     }
 }
