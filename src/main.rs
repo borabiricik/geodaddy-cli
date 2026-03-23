@@ -1,13 +1,18 @@
 mod scoring;
 mod analyzers;
+mod crawling;
 
 use anyhow::Result;
+use chromiumoxide::{Browser, BrowserConfig};
 use clap::Parser;
 use chrono::Utc;
-use serde::Serialize;
-use url::Url;
-use std::time::Duration;
+use futures::StreamExt;
 use scraper::Html;
+use serde::Serialize;
+use std::collections::HashSet;
+use std::time::Duration;
+use tokio::time::sleep;
+use url::Url;
 
 use crate::scoring::{AnalysisResult, CategoryScores, calculate_score};
 use crate::analyzers::technical::{
@@ -17,6 +22,14 @@ use crate::analyzers::technical::{
 };
 use crate::analyzers::content::{
     analyze_heading_structure, analyze_json_ld, analyze_semantic_html, analyze_alt_text,
+};
+use crate::analyzers::geo::{
+    analyze_listicle, analyze_ai_bots, analyze_schema_stacking,
+};
+use crate::crawling::{
+    fetch_sitemap_urls, collect_links_bfs, normalize_url, is_html_url,
+    extract_crawl_delay, needs_js_rendering, aggregate_scores,
+    format_progress_known, format_progress_unknown,
 };
 
 #[derive(Parser)]
@@ -30,13 +43,24 @@ struct Cli {
     /// Exit with code 1 if overall score is below this threshold (0-100).
     #[arg(long, value_name = "SCORE")]
     fail_under: Option<f64>,
+
+    /// Stop crawling after N pages (applies to both sitemap and link-following crawls).
+    #[arg(long, value_name = "N")]
+    max_pages: Option<usize>,
+
+    /// Enable JavaScript rendering for pages detected as JS-heavy.
+    /// Note: --enable-js downloads Chromium (~150MB) on first use.
+    #[arg(long)]
+    enable_js: bool,
 }
 
 #[derive(Serialize)]
 struct Report {
     schema_version: &'static str,
-    url: String,
+    url: String,               // base URL / site root per D-02
     crawled_at: String,
+    score: f64,                // aggregate average across all pages per D-01
+    categories: CategoryScores, // aggregate per D-01
     pages: Vec<PageResult>,
 }
 
@@ -51,7 +75,7 @@ struct PageResult {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Step 1: Init tracing — MUST use stderr writer, not stdout
+    // Init tracing — MUST use stderr writer, not stdout
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
@@ -59,14 +83,12 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // Step 2: Parse CLI args (clap handles --help and --version automatically)
     let cli = Cli::parse();
 
-    // Step 3: Normalize URL via WHATWG url crate (CRAWL-03 — handles localhost)
-    let normalized_url = Url::parse(&cli.url)
+    let base_url = Url::parse(&cli.url)
         .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", cli.url, e))?;
 
-    // Step 4: Build reqwest HTTP client with sensible defaults
+    // Build reqwest HTTP client with sensible defaults
     let client = reqwest::Client::builder()
         .user_agent(concat!(
             env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")
@@ -75,85 +97,192 @@ async fn main() -> Result<()> {
         .connect_timeout(Duration::from_secs(10))
         .build()?;
 
-    // Step 5: robots.txt soft-warn check (D-03 — CRAWL-05)
-    let robots_blocked = check_robots(&client, &normalized_url).await;
+    // robots.txt fetched ONCE at crawl start (anti-pattern: re-fetching per URL)
+    let (_, robots_body) = check_robots(&client, &base_url).await;
+    let crawl_delay = extract_crawl_delay(&robots_body).unwrap_or(1);
 
-    // Step 5b: Fetch page HTML for analysis
-    let html_body = match client.get(normalized_url.as_str()).send().await {
-        Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
-        Ok(resp) => {
-            tracing::warn!("HTTP {} fetching {}", resp.status(), normalized_url);
-            String::new()
-        }
-        Err(e) => {
-            tracing::warn!("Failed to fetch {}: {}", normalized_url, e);
-            String::new()
-        }
+    // Determine URL list — sitemap-first strategy (CRAWL-01 / CRAWL-02)
+    // Track whether total is known upfront (sitemap) or unknown (link-following)
+    let (urls, is_sitemap_driven): (Vec<String>, bool) =
+        match fetch_sitemap_urls(&client, &base_url).await {
+            Some(mut sitemap_urls) => {
+                // Apply --max-pages cap to sitemap list (D-04)
+                if let Some(max) = cli.max_pages {
+                    sitemap_urls.truncate(max);
+                }
+                (sitemap_urls, true)
+            }
+            None => {
+                // Sitemap unavailable — fall back to BFS depth 2 (D-05)
+                eprintln!("No sitemap.xml found — falling back to link-following (depth 2)");
+                (collect_links_bfs(&client, &base_url, 2, cli.max_pages).await, false)
+            }
+        };
+
+    // Filter URL list to HTML-only before the loop so that `total` and the
+    // progress counter both reflect only pages that will actually be analyzed.
+    // Non-HTML resources (feeds, media, sitemaps, etc.) are discarded here
+    // rather than inside the loop to avoid the enumerate() index skew bug.
+    let urls: Vec<String> = urls.into_iter().filter(|u| is_html_url(u)).collect();
+    let total = urls.len();
+
+    // Optionally launch headless browser (D-10 — only when --enable-js)
+    let browser: Option<Browser> = if cli.enable_js {
+        let config = BrowserConfig::builder()
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build BrowserConfig: {}", e))?;
+        let (b, mut handler) = Browser::launch(config).await?;
+        // CRITICAL: handler MUST be spawned or browser hangs (pitfall 1)
+        tokio::spawn(async move {
+            while let Some(_event) = handler.next().await {}
+        });
+        Some(b)
+    } else {
+        None
     };
-    let html_doc = Html::parse_document(&html_body);
 
-    // Step 5c: Run all analyzers and collect results
-    let mut results: Vec<AnalysisResult> = Vec::new();
+    let mut pages: Vec<PageResult> = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut page_num: usize = 0;
 
-    // TECH-01: broken links stub (no HTML needed)
-    results.push(analyze_broken_links());
+    for url_str in &urls {
+        // Deduplicate (D-06)
+        let norm = normalize_url(url_str).unwrap_or_else(|| url_str.clone());
+        if visited.contains(&norm) {
+            continue;
+        }
+        visited.insert(norm.clone());
 
-    // TECH-02: redirect chains (async, needs client + url)
-    results.push(analyze_redirect_chains(&client, &normalized_url).await);
+        // All URLs in `urls` are already HTML-only (filtered before the loop).
+        // page_num counts only pages that reach this point so the counter is
+        // always contiguous: 1, 2, 3 … with no gaps from skipped resources.
+        page_num += 1;
 
-    // TECH-03: meta tags (HTML) — returns 2 results (title + description)
-    results.extend(analyze_meta_tags(&html_doc));
+        // Progress to stderr (D-07/D-08, CLI-03)
+        if is_sitemap_driven {
+            eprintln!("{}", format_progress_known(page_num, total, url_str));
+        } else {
+            eprintln!("{}", format_progress_unknown(page_num, url_str));
+        }
 
-    // TECH-04: heading H1 check (HTML)
-    results.push(analyze_headings_tech(&html_doc));
+        // Check robots.txt per-URL using cached body
+        let page_url = match Url::parse(&norm) {
+            Ok(u) => u,
+            Err(_) => {
+                tracing::warn!("Skipping invalid URL: {}", norm);
+                continue;
+            }
+        };
+        let mut robots_matcher = robotstxt::DefaultMatcher::default();
+        let user_agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+        let robots_blocked = !robots_matcher.one_agent_allowed_by_robots(
+            &robots_body,
+            user_agent,
+            page_url.as_str(),
+        );
 
-    // TECH-05: mobile viewport (HTML)
-    results.push(analyze_mobile_viewport(&html_doc));
+        // Fetch HTML — reqwest first, then headless if enabled and thin (D-09/D-10)
+        let html_body = match client.get(page_url.as_str()).send().await {
+            Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
+            Ok(resp) => {
+                tracing::warn!("HTTP {} fetching {}", resp.status(), page_url);
+                String::new()
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch {}: {}", page_url, e);
+                String::new()
+            }
+        };
 
-    // TECH-06: robots.txt (async, needs client + url)
-    results.push(analyze_robots_txt(&client, &normalized_url).await);
+        let mut html_doc = Html::parse_document(&html_body);
 
-    // TECH-07: sitemap.xml (async, needs client + url)
-    results.push(analyze_sitemap(&client, &normalized_url).await);
+        // JS detection and re-fetch (D-09) — only when --enable-js is active
+        if cli.enable_js {
+            if let Some(ref b) = browser {
+                if needs_js_rendering(&html_doc) {
+                    tracing::info!(
+                        "JS-rendered page detected: {} — re-fetching via headless browser",
+                        page_url
+                    );
+                    match b.new_page(page_url.as_str()).await {
+                        Ok(page) => {
+                            if let Ok(content) = page.content().await {
+                                html_doc = Html::parse_document(&content);
+                            }
+                        }
+                        Err(e) => tracing::warn!("Headless fetch failed for {}: {}", page_url, e),
+                    }
+                }
+            }
+        }
 
-    // TECH-08: HTTPS + mixed content (HTML + url)
-    results.push(analyze_https(&html_doc, &normalized_url));
+        // Run all analyzers (same sequence as single-page flow — unchanged)
+        let mut results: Vec<AnalysisResult> = Vec::new();
 
-    // CONT-01: heading hierarchy (HTML)
-    results.push(analyze_heading_structure(&html_doc));
+        results.push(analyze_broken_links());
+        results.push(analyze_redirect_chains(&client, &page_url).await);
+        results.extend(analyze_meta_tags(&html_doc));
+        results.push(analyze_headings_tech(&html_doc));
+        results.push(analyze_mobile_viewport(&html_doc));
+        results.push(analyze_robots_txt(&client, &page_url).await);
+        results.push(analyze_sitemap(&client, &page_url).await);
+        results.push(analyze_https(&html_doc, &page_url));
+        results.push(analyze_heading_structure(&html_doc));
+        results.push(analyze_json_ld(&html_doc));
+        results.push(analyze_semantic_html(&html_doc));
+        results.push(analyze_alt_text(&html_doc));
+        results.push(analyze_listicle(&html_doc));
+        results.extend(analyze_ai_bots(&robots_body));
+        results.push(analyze_schema_stacking(&html_doc));
 
-    // CONT-02: JSON-LD schema (HTML)
-    results.push(analyze_json_ld(&html_doc));
+        let (page_score, page_categories) = calculate_score(&results);
 
-    // CONT-03: semantic HTML (HTML)
-    results.push(analyze_semantic_html(&html_doc));
+        pages.push(PageResult {
+            url: norm.clone(),
+            robots_blocked,
+            score: page_score,
+            categories: page_categories,
+            results,
+        });
 
-    // CONT-04: alt text (HTML)
-    results.push(analyze_alt_text(&html_doc));
+        // Polite crawl delay between pages — tokio::time::sleep, NOT std::thread::sleep
+        if page_num < total {
+            sleep(Duration::from_secs(crawl_delay)).await;
+        }
+    }
 
-    // Step 5d: Calculate scores
-    let (overall_score, category_scores) = calculate_score(&results);
+    // Aggregate score (D-01) — average across all pages
+    let page_score_tuples: Vec<(f64, CategoryScores)> = pages
+        .iter()
+        .map(|p| {
+            (
+                p.score,
+                CategoryScores {
+                    technical: p.categories.technical,
+                    content: p.categories.content,
+                    geo: p.categories.geo,
+                },
+            )
+        })
+        .collect();
+    let (agg_score, agg_categories) = aggregate_scores(&page_score_tuples);
 
-    // Step 6: Build report (D-02 schema)
+    // Build report — url is base URL per D-02
     let report = Report {
         schema_version: "1",
         url: cli.url.clone(),
         crawled_at: Utc::now().to_rfc3339(),
-        pages: vec![PageResult {
-            url: normalized_url.to_string(),
-            robots_blocked,
-            score: overall_score,
-            categories: category_scores,
-            results,
-        }],
+        score: agg_score,
+        categories: agg_categories,
+        pages,
     };
 
-    // Step 7: Output JSON to stdout — MUST be printed before process::exit
+    // JSON to stdout — MUST happen before process::exit (CLI-01)
     println!("{}", serde_json::to_string_pretty(&report)?);
 
-    // Step 8: Apply --fail-under exit code (CLI-02)
+    // --fail-under compares against aggregate score, not per-page (pitfall 6)
     if let Some(threshold) = cli.fail_under {
-        if overall_score < threshold {
+        if agg_score < threshold {
             std::process::exit(1);
         }
     }
@@ -161,24 +290,21 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn check_robots(client: &reqwest::Client, page_url: &Url) -> bool {
+async fn check_robots(client: &reqwest::Client, page_url: &Url) -> (bool, String) {
     // Build robots.txt URL from origin — MUST use set_path(), not string concat
-    // (avoids pitfall of appending to non-root paths like /blog/post/1)
     let mut robots_url = page_url.clone();
     robots_url.set_path("/robots.txt");
     robots_url.set_query(None);
     robots_url.set_fragment(None);
 
     let body = match client.get(robots_url.as_str()).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            resp.text().await.unwrap_or_default()
-        }
+        Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
         // 404, network error, localhost with no robots.txt = allow all (D-03)
         _ => String::new(),
     };
 
     let user_agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
     let mut matcher = robotstxt::DefaultMatcher::default();
-    // Returns true if BLOCKED (inverted from allowed)
-    !matcher.one_agent_allowed_by_robots(&body, user_agent, page_url.as_str())
+    let blocked = !matcher.one_agent_allowed_by_robots(&body, user_agent, page_url.as_str());
+    (blocked, body)
 }
