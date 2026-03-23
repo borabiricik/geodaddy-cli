@@ -361,6 +361,110 @@ fn test_fail_under_zero_exits_zero() {
     );
 }
 
+// ── Test 8: --vitals not passed → performance is null in JSON ─────────────────
+//
+// D-05: performance must be null (not missing, not 100.0) when --vitals not passed
+
+#[test]
+fn test_no_vitals_performance_null() {
+    let mut server = Server::new();
+
+    let _m_robots = server
+        .mock("GET", "/robots.txt")
+        .with_status(200)
+        .with_body(robots_txt())
+        .create();
+
+    let sitemap = sitemap_body(&server.url());
+    let _m_sitemap = server
+        .mock("GET", "/sitemap.xml")
+        .with_status(200)
+        .with_body(sitemap)
+        .create();
+
+    let _m_root = server
+        .mock("GET", "/")
+        .with_status(200)
+        .with_header("content-type", "text/html")
+        .with_body(minimal_html())
+        .create();
+
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg(server.url())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "geodaddy should exit 0");
+
+    let json: Value = serde_json::from_slice(&output.stdout)
+        .expect("stdout should be valid JSON");
+
+    // D-05: performance must be null (not missing, not 100.0) when --vitals not passed
+    assert!(
+        json["categories"]["performance"].is_null(),
+        "categories.performance must be null when --vitals is not passed, got: {}",
+        json["categories"]["performance"]
+    );
+
+    // Also verify pages[0].categories.performance is null
+    assert!(
+        json["pages"][0]["categories"]["performance"].is_null(),
+        "pages[0].categories.performance must be null when --vitals is not passed"
+    );
+}
+
+// ── Test 9: --vitals flag is recognized by the CLI ────────────────────────────
+//
+// Verifies that --vitals is a recognized CLI flag (not rejected as unknown argument).
+// Marked #[ignore] because the actual vitals measurement requires Chromium.
+// Run manually with: cargo test -- --ignored test_vitals_flag_accepted
+
+/// Verifies that --vitals is a recognized CLI flag (not rejected as unknown argument).
+/// Marked #[ignore] because the actual vitals measurement requires Chromium.
+/// Run manually with: cargo test -- --ignored test_vitals_flag_accepted
+#[test]
+#[ignore]
+fn test_vitals_flag_accepted() {
+    let mut server = Server::new();
+
+    let _m_robots = server
+        .mock("GET", "/robots.txt")
+        .with_status(200)
+        .with_body(robots_txt())
+        .create();
+
+    let sitemap = sitemap_body(&server.url());
+    let _m_sitemap = server
+        .mock("GET", "/sitemap.xml")
+        .with_status(200)
+        .with_body(sitemap)
+        .create();
+
+    let _m_root = server
+        .mock("GET", "/")
+        .with_status(200)
+        .with_header("content-type", "text/html")
+        .with_body(minimal_html())
+        .create();
+
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg(server.url())
+        .arg("--vitals")
+        .output()
+        .unwrap();
+
+    // The flag must be recognized — exit code may be non-zero if Chromium unavailable,
+    // but stderr must NOT contain "unexpected argument '--vitals'"
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("unexpected argument '--vitals'"),
+        "geodaddy should recognize --vitals flag, stderr: {}",
+        stderr
+    );
+}
+
 // ── Test 7: non-HTML URLs in sitemap are not included in pages ────────────────
 //
 // Edge case: sitemap contains .rss and .xml URLs — they must be filtered out
