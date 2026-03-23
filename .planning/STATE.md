@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-23T19:06:46.076Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-23T19:10:43.266Z"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-23)
 ## Current Position
 
 Phase: 05 (core-web-vitals-measurement-lcp-fcp-cls-ttfb-tbt-and-performance-metrics-analyzer) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Plan: 2 of 3
 | Phase 04 P01 | 20 | 1 tasks | 3 files |
 | Phase 04 P02 | 25 | 2 tasks | 2 files |
 | Phase 05 P01 | 131 | 2 tasks | 5 files |
+| Phase 05 P02 | 90 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 04]: chromiumoxide requires explicit zip8+rustls features in addition to fetcher — not auto-propagated
 - [Phase 05]: performance: Option<f64> serializes as JSON null when None (not skipped) — consistent with D-05 design
 - [Phase 05]: aggregate_scores averages only pages with Some(performance) — None pages excluded from perf average
+- [Phase 05]: eval_f64 returns -1.0 on any CDP error — non-panicking, maps CDP failures to the same unmeasured path as missing data
+- [Phase 05]: TBT 0.0ms is Status::Pass — 0ms TBT means no long tasks, legitimately good performance
 
 ### Roadmap Evolution
 
@@ -90,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-23T19:06:46.073Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-03-23T19:10:43.263Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None

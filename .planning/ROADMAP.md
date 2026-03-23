@@ -100,9 +100,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 **Goal:** Add `--vitals` flag that measures Core Web Vitals (LCP, FCP, CLS, TTFB, TBT) via chromiumoxide headless browser per crawled page, surfacing results as scored AnalysisResult entries in a new `performance` scoring category with a 4-way overall average
 **Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07, PERF-08
 **Depends on:** Phase 4
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [x] 05-01-PLAN.md — scoring.rs: CategoryScores + performance field, severity_points perf entries, calculate_score 4-way average; analyzers/mod.rs: pub mod performance
-- [ ] 05-02-PLAN.md — analyzers/performance.rs: analyze_vitals + 5 classify_* functions + JS constants + unit tests
+- [x] 05-02-PLAN.md — analyzers/performance.rs: analyze_vitals + 5 classify_* functions + JS constants + unit tests
 - [ ] 05-03-PLAN.md — main.rs wiring: --vitals flag, vitals_browser launch, per-page analyze_vitals call; crawling.rs: aggregate_scores performance averaging; integration tests
