@@ -80,8 +80,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — crawling.rs module: sitemap URL extraction, BFS link-following, JS detection, URL normalization, aggregate scoring helpers
-- [ ] 04-02-PLAN.md — main.rs crawl loop wiring: --max-pages, --enable-js, progress to stderr, aggregate Report fields
+- [x] 04-01-PLAN.md — crawling.rs module: sitemap URL extraction, BFS link-following, JS detection, URL normalization, aggregate scoring helpers
+- [x] 04-02-PLAN.md — main.rs crawl loop wiring: --max-pages, --enable-js, progress to stderr, aggregate Report fields
 
 ## Progress
 
