@@ -123,6 +123,29 @@ pub async fn collect_links_bfs(
     result
 }
 
+/// Returns true when the URL looks like an HTML page that should be analyzed.
+/// Filters out sitemaps, feeds, media files, stylesheets, scripts, and other
+/// non-HTML resources that would produce garbage GEO analysis results.
+pub fn is_html_url(url_str: &str) -> bool {
+    let path = match Url::parse(url_str) {
+        Ok(u) => u.path().to_lowercase(),
+        // Unparseable URL — skip it
+        Err(_) => return false,
+    };
+    // Extensions that are never HTML content pages
+    const NON_HTML_EXTS: &[&str] = &[
+        ".xml", ".rss", ".atom",
+        ".json", ".jsonld",
+        ".pdf", ".txt",
+        ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+        ".css", ".js", ".map",
+        ".woff", ".woff2", ".ttf", ".eot",
+        ".zip", ".gz", ".tar",
+        ".mp4", ".mp3", ".webm", ".ogg",
+    ];
+    !NON_HTML_EXTS.iter().any(|ext| path.ends_with(ext))
+}
+
 /// Normalizes a URL: strips fragments and trailing slashes from non-root paths.
 pub fn normalize_url(url_str: &str) -> Option<String> {
     let mut u = Url::parse(url_str).ok()?;
@@ -275,6 +298,27 @@ mod tests {
             "<html><body><h1>A</h1><h2>B</h2><h3>C</h3><p>text</p></body></html>",
         );
         assert!(!needs_js_rendering(&html));
+    }
+
+    #[test]
+    fn test_is_html_url_allows_html_pages() {
+        assert!(is_html_url("https://example.com/"));
+        assert!(is_html_url("https://example.com/about"));
+        assert!(is_html_url("https://example.com/blog/post-title"));
+        assert!(is_html_url("https://example.com/page?q=1"));
+    }
+
+    #[test]
+    fn test_is_html_url_filters_non_html() {
+        assert!(!is_html_url("https://example.com/sitemap.xml"));
+        assert!(!is_html_url("https://example.com/sitemap-posts.xml"));
+        assert!(!is_html_url("https://example.com/feed.rss"));
+        assert!(!is_html_url("https://example.com/robots.txt"));
+        assert!(!is_html_url("https://example.com/style.css"));
+        assert!(!is_html_url("https://example.com/app.js"));
+        assert!(!is_html_url("https://example.com/logo.png"));
+        assert!(!is_html_url("https://example.com/doc.pdf"));
+        assert!(!is_html_url("https://example.com/data.json"));
     }
 
     #[test]

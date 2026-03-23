@@ -27,7 +27,7 @@ use crate::analyzers::geo::{
     analyze_listicle, analyze_ai_bots, analyze_schema_stacking,
 };
 use crate::crawling::{
-    fetch_sitemap_urls, collect_links_bfs, normalize_url,
+    fetch_sitemap_urls, collect_links_bfs, normalize_url, is_html_url,
     extract_crawl_delay, needs_js_rendering, aggregate_scores,
     format_progress_known, format_progress_unknown,
 };
@@ -146,6 +146,13 @@ async fn main() -> Result<()> {
             continue;
         }
         visited.insert(norm.clone());
+
+        // Skip non-HTML resources (sitemaps, feeds, media, etc.) — they produce
+        // garbage GEO analysis results and should never appear in pages[].
+        if !is_html_url(&norm) {
+            tracing::debug!("Skipping non-HTML URL: {}", norm);
+            continue;
+        }
 
         // Progress to stderr (D-07/D-08, CLI-03)
         if is_sitemap_driven {
