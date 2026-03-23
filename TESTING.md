@@ -1,31 +1,31 @@
-# geodaddy — Test Guide (Phase 1)
+# geodaddy — Test Guide
 
-## Ön Koşullar
+## Prerequisites
 
-- Rust toolchain kurulu olmalı (`rustup` ile). Kontrol: `rustc --version`
-- `jq` kurulu olmalı (JSON çıktısını formatlamak için). macOS: `brew install jq`
-- İnternet bağlantısı (testlerin bir kısmı `httpbin.org` kullanıyor)
+- Rust toolchain installed (via `rustup`). Check: `rustc --version`
+- `jq` installed (for formatting JSON output). macOS: `brew install jq`
+- Internet connection (some tests hit `httpbin.org`)
 
 ---
 
-## 1. Binary'i Build Et
+## 1. Build the Binary
 
 ```bash
 cd cli
 cargo build --release
 ```
 
-İlk build ~1-2 dakika sürer (bağımlılıklar compile ediliyor). Başarılı olursa:
+The first build takes ~1-2 minutes (compiling dependencies). On success:
 
 ```
 Finished `release` profile [optimized] target(s) in ...
 ```
 
-Binary şuraya oluşur: `cli/target/release/geodaddy`
+Binary is at: `cli/target/release/geodaddy`
 
 ---
 
-## 2. Temel Kullanım
+## 2. Basic Usage
 
 ### --help
 
@@ -33,7 +33,7 @@ Binary şuraya oluşur: `cli/target/release/geodaddy`
 ./target/release/geodaddy --help
 ```
 
-Beklenen çıktı:
+Expected output:
 
 ```
 GEO analysis tool — surface actionable AI search optimization issues
@@ -51,15 +51,15 @@ Options:
 
 ---
 
-## 3. Bir URL Analiz Et
+## 3. Analyze a URL
 
-### Gerçek bir URL
+### A real URL
 
 ```bash
 ./target/release/geodaddy https://example.com
 ```
 
-Beklenen JSON çıktısı (stdout):
+Expected JSON output (stdout):
 
 ```json
 {
@@ -70,21 +70,19 @@ Beklenen JSON çıktısı (stdout):
     {
       "url": "https://example.com/",
       "robots_blocked": false,
-      "results": []
+      "results": [...]
     }
   ]
 }
 ```
 
-> `results: []` boş çünkü analizörler Phase 2'de ekleniyor. Bu kasıtlı tasarım.
-
-### jq ile formatlanmış çıktı
+### Formatted with jq
 
 ```bash
 ./target/release/geodaddy https://example.com | jq .
 ```
 
-### Belirli bir alan
+### A specific field
 
 ```bash
 ./target/release/geodaddy https://example.com | jq '.pages[0].robots_blocked'
@@ -94,15 +92,15 @@ Beklenen JSON çıktısı (stdout):
 
 ## 4. Localhost Test
 
-Çalışan bir yerel sunucu yokken bile hata vermeden çalışmalı:
+Should work without errors even when no local server is running:
 
 ```bash
 ./target/release/geodaddy http://localhost:3000
 ```
 
-Beklenen: `robots_blocked: false`, exit code `0`
+Expected: `robots_blocked: false`, exit code `0`
 
-Eğer localhost'ta gerçek bir uygulama çalışıyorsa (örn. Next.js dev server):
+If a real app is running on localhost (e.g., a Next.js dev server):
 
 ```bash
 ./target/release/geodaddy http://localhost:3000/blog/post/1
@@ -110,49 +108,55 @@ Eğer localhost'ta gerçek bir uygulama çalışıyorsa (örn. Next.js dev serve
 
 ---
 
-## 5. robots.txt Davranışı
+## 5. robots.txt Behavior
 
-### robots.txt'i olan bir site
+### Site with a robots.txt
 
 ```bash
 ./target/release/geodaddy https://openai.com | jq '.pages[0].robots_blocked'
 ```
 
-OpenAI'nin robots.txt'i `GPTBot` gibi botları engelliyor ama `geodaddy/0.1.0` user-agent'ını engellemiyorsa `false` döner.
+If the site's `robots.txt` blocks `GPTBot` but not the `geodaddy/0.1.0` user-agent, this returns `false`.
 
-### Kasıtlı engelleme testi
+### Intentional block test
 
-Eğer robots.txt'i `Disallow: /` olan bir site ile test etmek istersen `robots_blocked: true` görürsün — ama **crawl yine de devam eder** (soft warn davranışı).
+A site with `Disallow: /` in its `robots.txt` will return `robots_blocked: true` — but **the crawl still continues** (soft warn behavior).
 
 ---
 
-## 6. --fail-under Flag'i
+## 6. --fail-under Flag
 
-CI/CD pipeline entegrasyonu için:
+For CI/CD pipeline integration:
 
 ```bash
-# Phase 1'de score her zaman 0.0 (analizör yok) — threshold > 0 ise exit 1
+# Exits 1 if score is below 50
 ./target/release/geodaddy --fail-under 50 https://example.com
-echo "Exit code: $?"   # 1 beklenir
+echo "Exit code: $?"   # expect 1
 
-# threshold = 0 ise exit 0
+# Exits 0 if threshold is 0
 ./target/release/geodaddy --fail-under 0 https://example.com
-echo "Exit code: $?"   # 0 beklenir
+echo "Exit code: $?"   # expect 0
 ```
 
 ---
 
-## 7. Otomatik Test Suite
+## 7. Automated Test Suite
 
-Tüm 7 testi tek seferde çalıştır:
+Run all tests at once:
 
 ```bash
 cd cli
+cargo test
+```
+
+To also run integration tests (requires internet):
+
+```bash
 chmod +x tests/integration_test.sh
 bash tests/integration_test.sh
 ```
 
-Beklenen çıktı:
+Expected output:
 
 ```
 PASS: --help exits 0 and contains docs
@@ -165,21 +169,21 @@ PASS: localhost with no server: robots_blocked=false (graceful)
 Results: 7 passed, 0 failed
 ```
 
-> Testlerin 2-6'sı `http://httpbin.org/get` adresine istek atıyor. İnternet bağlantısı olmadan bu testler fail olabilir.
+> Tests 2–6 make requests to `http://httpbin.org/get`. They may fail without an internet connection.
 
 ---
 
-## 8. JSON stdout Temizliği (Pipe Testi)
+## 8. JSON stdout Cleanliness (Pipe Test)
 
-JSON çıktısının tracing/log içermediğini doğrula:
+Verify that JSON output contains no tracing/log noise:
 
 ```bash
 ./target/release/geodaddy https://example.com 2>/dev/null | jq .
 ```
 
-`jq` hata vermeden parse ediyorsa stdout temiz demektir.
+If `jq` parses without errors, stdout is clean.
 
-Verbose tracing görmek istersen:
+To see verbose tracing:
 
 ```bash
 RUST_LOG=debug ./target/release/geodaddy https://example.com 2>&1 | head -20
@@ -187,45 +191,46 @@ RUST_LOG=debug ./target/release/geodaddy https://example.com 2>&1 | head -20
 
 ---
 
-## 9. Hata Durumları
+## 9. Error Cases
 
-### Geçersiz URL
+### Invalid URL
 
 ```bash
 ./target/release/geodaddy "not-a-url"
 ```
 
-Beklenen: stderr'e hata mesajı, exit code `1`
+Expected: error message on stderr, exit code `1`
 
-### Ulaşılamayan host
+### Unreachable host
 
 ```bash
 ./target/release/geodaddy https://this-domain-does-not-exist-xyz.com
 ```
 
-Beklenen: JSON çıktısı üretilir, `robots_blocked: false`
+Expected: JSON output is produced, `robots_blocked: false`
 
 ---
 
-## 10. CI/CD Entegrasyonu
+## 10. CI/CD Integration
 
 ```bash
-# Başarı kriteri: siteye ulaşılabilir + threshold 0
+# Pass criterion: site reachable + threshold 0
 ./target/release/geodaddy --fail-under 0 https://example.com
-# Phase 2 sonrası kullanım:
-# ./target/release/geodaddy --fail-under 70 https://mysite.com
+
+# Recommended usage with a score gate:
+./target/release/geodaddy --fail-under 70 https://mysite.com
 ```
 
 ---
 
-## Özet
+## Summary
 
-| Test | Komut | Beklenen |
-|------|-------|----------|
-| Build | `cargo build --release` | Compile başarılı |
-| Yardım | `geodaddy --help` | Kullanım belgesi |
-| Temel analiz | `geodaddy https://example.com` | JSON çıktısı |
+| Test | Command | Expected |
+|------|---------|----------|
+| Build | `cargo build --release` | Compiles successfully |
+| Help | `geodaddy --help` | Usage docs printed |
+| Basic analysis | `geodaddy https://example.com` | JSON output |
 | Localhost | `geodaddy http://localhost:3000` | Exit 0, robots_blocked false |
 | Exit code fail | `geodaddy --fail-under 50 <url>` | Exit 1 |
 | Exit code pass | `geodaddy --fail-under 0 <url>` | Exit 0 |
-| Otomatik testler | `bash tests/integration_test.sh` | 7/7 PASS |
+| Automated tests | `bash tests/integration_test.sh` | 7/7 PASS |
