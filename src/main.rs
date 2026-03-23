@@ -47,7 +47,7 @@ struct Cli {
     #[arg(long, value_name = "SCORE")]
     fail_under: Option<f64>,
 
-    /// Stop crawling after N pages (applies to both sitemap and link-following crawls).
+    /// Enable crawling and stop after N pages. Without this flag, only the given URL is analyzed.
     #[arg(long, value_name = "N")]
     max_pages: Option<usize>,
 
@@ -113,9 +113,14 @@ async fn main() -> Result<()> {
     let (_, robots_body) = check_robots(&client, &base_url).await;
     let crawl_delay = extract_crawl_delay(&robots_body).unwrap_or(1);
 
-    // Determine URL list — sitemap-first strategy (CRAWL-01 / CRAWL-02)
-    // Track whether total is known upfront (sitemap) or unknown (link-following)
-    let (urls, is_sitemap_driven): (Vec<String>, bool) =
+    // Determine URL list — crawling is opt-in via --max-pages (CRAWL-01 / CRAWL-02)
+    // Without --max-pages: single-URL mode, no sitemap or BFS invoked.
+    // With --max-pages: sitemap-first strategy, falling back to BFS if no sitemap.
+    // Track whether total is known upfront (sitemap) or unknown (link-following/single).
+    let (urls, is_sitemap_driven): (Vec<String>, bool) = if cli.max_pages.is_none() {
+        // No --max-pages: analyze only the given URL, no crawling
+        (vec![cli.url.clone()], false)
+    } else {
         match fetch_sitemap_urls(&client, &base_url).await {
             Some(mut sitemap_urls) => {
                 // Apply --max-pages cap to sitemap list (D-04)
@@ -129,7 +134,8 @@ async fn main() -> Result<()> {
                 eprintln!("No sitemap.xml found — falling back to link-following (depth 2)");
                 (collect_links_bfs(&client, &base_url, 2, cli.max_pages).await, false)
             }
-        };
+        }
+    };
 
     // Filter URL list to HTML-only before the loop so that `total` and the
     // progress counter both reflect only pages that will actually be analyzed.

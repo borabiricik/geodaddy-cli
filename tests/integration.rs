@@ -184,6 +184,8 @@ fn test_progress_to_stderr_sitemap_format() {
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
         .arg(&server.url())
+        .arg("--max-pages")
+        .arg("10")
         .output()
         .unwrap();
 
@@ -230,6 +232,8 @@ fn test_progress_to_stderr_bfs_fallback() {
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
         .arg(&server.url())
+        .arg("--max-pages")
+        .arg("10")
         .output()
         .unwrap();
 
