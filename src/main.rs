@@ -109,6 +109,22 @@ async fn main() -> Result<()> {
         .connect_timeout(Duration::from_secs(10))
         .build()?;
 
+    // Connectivity check — fail fast if the target is unreachable
+    match client.head(base_url.as_str()).send().await {
+        Ok(_) => {}
+        Err(e) => {
+            if e.is_connect() || e.is_timeout() {
+                anyhow::bail!(
+                    "Cannot connect to '{}': {}. Check the URL and ensure the server is running.",
+                    cli.url,
+                    e
+                );
+            }
+            // Non-connection errors (e.g. TLS, redirect limits) — proceed anyway
+            tracing::warn!("Connectivity pre-check warning for {}: {}", cli.url, e);
+        }
+    }
+
     // robots.txt fetched ONCE at crawl start (anti-pattern: re-fetching per URL)
     let (_, robots_body) = check_robots(&client, &base_url).await;
     let crawl_delay = extract_crawl_delay(&robots_body).unwrap_or(1);
