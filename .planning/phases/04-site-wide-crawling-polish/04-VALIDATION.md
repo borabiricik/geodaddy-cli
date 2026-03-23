@@ -1,9 +1,9 @@
 ---
 phase: 4
 slug: site-wide-crawling-polish
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-03-23
 ---
 
@@ -36,18 +36,26 @@ created: 2026-03-23
 
 ## Per-Task Verification Map
 
+Test names below match the `<behavior>` block in Plan 04-01 Task 1 exactly.
+
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 4-01-01 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_sitemap_url_extraction` | ❌ W0 | ⬜ pending |
-| 4-01-02 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_sitemap_priority_sort` | ❌ W0 | ⬜ pending |
-| 4-01-03 | 01 | 1 | CRAWL-02 | unit | `cargo test --lib crawling::tests::test_link_extraction` | ❌ W0 | ⬜ pending |
-| 4-01-04 | 01 | 1 | CRAWL-02 | unit | `cargo test --lib crawling::tests::test_link_depth_limit` | ❌ W0 | ⬜ pending |
-| 4-01-05 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_url_deduplication` | ❌ W0 | ⬜ pending |
-| 4-01-06 | 01 | 2 | CLI-03 | unit | `cargo test --lib crawling::tests::test_progress_format_known_total` | ❌ W0 | ⬜ pending |
-| 4-01-07 | 01 | 2 | CLI-03 | unit | `cargo test --lib crawling::tests::test_progress_format_unknown_total` | ❌ W0 | ⬜ pending |
-| 4-02-01 | 02 | 1 | CRAWL-04 | unit | `cargo test --lib crawling::tests::test_js_detection_thin_page` | ❌ W0 | ⬜ pending |
-| 4-02-02 | 02 | 1 | CRAWL-04 | unit | `cargo test --lib crawling::tests::test_js_detection_rich_page` | ❌ W0 | ⬜ pending |
-| 4-03-01 | 03 | 1 | CRAWL-01 | unit | `cargo test --lib` (Report struct compile check) | ❌ W0 | ⬜ pending |
+| 4-01-01 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_fetch_sitemap_urls_parses_xml` | ❌ W0 | ⬜ pending |
+| 4-01-02 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_url_normalization` | ❌ W0 | ⬜ pending |
+| 4-01-03 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_url_normalization_fragment` | ❌ W0 | ⬜ pending |
+| 4-01-04 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_url_normalization_root` | ❌ W0 | ⬜ pending |
+| 4-01-05 | 01 | 1 | CRAWL-02 | unit | `cargo test --lib crawling::tests::test_extract_same_origin_links` | ❌ W0 | ⬜ pending |
+| 4-01-06 | 01 | 1 | CRAWL-02 | unit | `cargo test --lib crawling::tests::test_offsite_links_filtered` | ❌ W0 | ⬜ pending |
+| 4-01-07 | 01 | 1 | CRAWL-02 | unit | `cargo test --lib crawling::tests::test_relative_link_resolution` | ❌ W0 | ⬜ pending |
+| 4-01-08 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_extract_crawl_delay_present` | ❌ W0 | ⬜ pending |
+| 4-01-09 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_extract_crawl_delay_absent` | ❌ W0 | ⬜ pending |
+| 4-01-10 | 01 | 1 | CRAWL-04 | unit | `cargo test --lib crawling::tests::test_js_detection_thin_page` | ❌ W0 | ⬜ pending |
+| 4-01-11 | 01 | 1 | CRAWL-04 | unit | `cargo test --lib crawling::tests::test_js_detection_rich_page` | ❌ W0 | ⬜ pending |
+| 4-01-12 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_aggregate_score_average` | ❌ W0 | ⬜ pending |
+| 4-01-13 | 01 | 1 | CRAWL-01 | unit | `cargo test --lib crawling::tests::test_aggregate_score_empty` | ❌ W0 | ⬜ pending |
+| 4-01-14 | 01 | 1 | CLI-03 | unit | `cargo test --lib crawling::tests::test_progress_format_known` | ❌ W0 | ⬜ pending |
+| 4-01-15 | 01 | 1 | CLI-03 | unit | `cargo test --lib crawling::tests::test_progress_format_unknown` | ❌ W0 | ⬜ pending |
+| 4-02-01 | 02 | 2 | CRAWL-04 | build | `cargo build` (Report struct compile check) | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -55,11 +63,11 @@ created: 2026-03-23
 
 ## Wave 0 Requirements
 
-- [ ] `src/crawling.rs` — new module with stub functions and `#[cfg(test)]` block
-- [ ] Unit test stubs for all 10 test cases in the Per-Task Verification Map
-- [ ] `src/main.rs` — `mod crawling;` declaration added
+Wave 0 is satisfied by **Plan 04-01 Task 1** (tdd="true"). That task creates `src/crawling.rs` with all stub functions and the `#[cfg(test)]` block, and adds `mod crawling;` to `src/main.rs`. There is no separate stub-only step — the TDD task writes tests first (RED), then implements each function (GREEN), satisfying Wave 0 before Plan 04-02 executes.
 
-*Wave 0 is the first task in Plan 01.*
+- [x] `src/crawling.rs` — new module with functions and `#[cfg(test)]` block (Plan 04-01 Task 1)
+- [x] Unit tests for all 15 behavior cases listed in Per-Task Verification Map (Plan 04-01 Task 1)
+- [x] `src/main.rs` — `mod crawling;` declaration added (Plan 04-01 Task 1)
 
 ---
 
@@ -75,11 +83,11 @@ created: 2026-03-23
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 10s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 10s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved
