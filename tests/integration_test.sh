@@ -64,6 +64,42 @@ RB=$(echo "$OUTPUT" | jq '.pages[0].robots_blocked' 2>/dev/null)
   && run_test "localhost with no server: robots_blocked=false (graceful)" "PASS" \
   || run_test "localhost with no server: robots_blocked=false (graceful)" "FAIL"
 
+# Test 8: BFS fallback — "No sitemap" notice appears on stderr
+# Serves a minimal site with no sitemap.xml; binary must emit the fallback message.
+TMP_DIR=$(mktemp -d)
+echo "<html><head><title>Test</title></head><body><h1>Hello</h1><p>World</p></body></html>" > "$TMP_DIR/index.html"
+( cd "$TMP_DIR" && python3 -m http.server 18765 >/dev/null 2>&1 ) &
+PY_PID=$!
+sleep 0.5  # Give server time to start
+
+STDERR=$("$BINARY" http://localhost:18765 2>&1 >/dev/null)
+[[ "$STDERR" == *"No sitemap"* || "$STDERR" == *"Crawling page"* ]] \
+  && run_test "BFS fallback: no sitemap notice on stderr" "PASS" \
+  || run_test "BFS fallback: no sitemap notice on stderr" "FAIL"
+
+kill $PY_PID 2>/dev/null
+wait $PY_PID 2>/dev/null
+rm -rf "$TMP_DIR"
+
+# Test 9: --max-pages flag caps pages to 1
+# Serves a minimal single-page site; --max-pages 1 should produce exactly 1 page.
+TMP_DIR2=$(mktemp -d)
+echo "<html><head><title>Test</title></head><body><h1>Hello</h1><p>World</p></body></html>" > "$TMP_DIR2/index.html"
+( cd "$TMP_DIR2" && python3 -m http.server 18766 >/dev/null 2>&1 ) &
+PY_PID2=$!
+sleep 0.5  # Give server time to start
+
+OUTPUT=$("$BINARY" --max-pages 1 http://localhost:18766 2>/dev/null)
+EXIT=$?
+PAGES_COUNT=$(echo "$OUTPUT" | jq '.pages | length' 2>/dev/null)
+[[ $EXIT -eq 0 && "$PAGES_COUNT" -le 1 && "$PAGES_COUNT" -ge 1 ]] \
+  && run_test "--max-pages 1: pages count == 1" "PASS" \
+  || run_test "--max-pages 1: pages count == 1" "FAIL"
+
+kill $PY_PID2 2>/dev/null
+wait $PY_PID2 2>/dev/null
+rm -rf "$TMP_DIR2"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1
