@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Milestone complete
-stopped_at: Completed quick-260323-v8s-PLAN.md
-last_updated: "2026-03-23T19:33:52.290Z"
+stopped_at: Completed quick task 260323-vfu: Fix crawling behavior when --max-pages is absent
+last_updated: "2026-03-23T20:00:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 5
@@ -80,6 +80,7 @@ Recent decisions affecting current work:
 - [Phase 05]: eval_f64 returns -1.0 on any CDP error — non-panicking, maps CDP failures to the same unmeasured path as missing data
 - [Phase 05]: TBT 0.0ms is Status::Pass — 0ms TBT means no long tasks, legitimately good performance
 - [Phase 05]: test_vitals_flag_accepted marked #[ignore] so CI does not require Chromium download
+- [quick-260323-vfu]: Crawling is opt-in — without --max-pages, URL list is [cli.url] and no sitemap/BFS called
 
 ### Roadmap Evolution
 
@@ -98,9 +99,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260323-v8s | Add --beauty flag for colored human-readable CLI output | 2026-03-23 | 34f2072 | [260323-v8s-add-beauty-flag-for-colored-human-readab](./quick/260323-v8s-add-beauty-flag-for-colored-human-readab/) |
+| 260323-vfu | Fix crawling behavior when --max-pages is absent (single-URL default mode) | 2026-03-23 | af98719 | [260323-vfu-fix-crawling-behavior-when-max-pages-is-](./quick/260323-vfu-fix-crawling-behavior-when-max-pages-is-/) |
 
 ## Session Continuity
 
 Last session: 2026-03-23
-Stopped at: Completed quick task 260323-v8s: Add --beauty flag for colored human-readable CLI output
+Stopped at: Completed quick task 260323-vfu: Fix crawling behavior when --max-pages is absent
 Resume file: None
