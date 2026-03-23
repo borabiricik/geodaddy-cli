@@ -114,11 +114,16 @@ async fn main() -> Result<()> {
             }
             None => {
                 // Sitemap unavailable — fall back to BFS depth 2 (D-05)
-                tracing::info!("No sitemap.xml found — falling back to link-following (depth 2)");
+                eprintln!("No sitemap.xml found — falling back to link-following (depth 2)");
                 (collect_links_bfs(&client, &base_url, 2, cli.max_pages).await, false)
             }
         };
 
+    // Filter URL list to HTML-only before the loop so that `total` and the
+    // progress counter both reflect only pages that will actually be analyzed.
+    // Non-HTML resources (feeds, media, sitemaps, etc.) are discarded here
+    // rather than inside the loop to avoid the enumerate() index skew bug.
+    let urls: Vec<String> = urls.into_iter().filter(|u| is_html_url(u)).collect();
     let total = urls.len();
 
     // Optionally launch headless browser (D-10 — only when --enable-js)
@@ -138,8 +143,9 @@ async fn main() -> Result<()> {
 
     let mut pages: Vec<PageResult> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
+    let mut page_num: usize = 0;
 
-    for (idx, url_str) in urls.iter().enumerate() {
+    for url_str in &urls {
         // Deduplicate (D-06)
         let norm = normalize_url(url_str).unwrap_or_else(|| url_str.clone());
         if visited.contains(&norm) {
@@ -147,18 +153,16 @@ async fn main() -> Result<()> {
         }
         visited.insert(norm.clone());
 
-        // Skip non-HTML resources (sitemaps, feeds, media, etc.) — they produce
-        // garbage GEO analysis results and should never appear in pages[].
-        if !is_html_url(&norm) {
-            tracing::debug!("Skipping non-HTML URL: {}", norm);
-            continue;
-        }
+        // All URLs in `urls` are already HTML-only (filtered before the loop).
+        // page_num counts only pages that reach this point so the counter is
+        // always contiguous: 1, 2, 3 … with no gaps from skipped resources.
+        page_num += 1;
 
         // Progress to stderr (D-07/D-08, CLI-03)
         if is_sitemap_driven {
-            eprintln!("{}", format_progress_known(idx + 1, total, url_str));
+            eprintln!("{}", format_progress_known(page_num, total, url_str));
         } else {
-            eprintln!("{}", format_progress_unknown(idx + 1, url_str));
+            eprintln!("{}", format_progress_unknown(page_num, url_str));
         }
 
         // Check robots.txt per-URL using cached body
@@ -242,7 +246,7 @@ async fn main() -> Result<()> {
         });
 
         // Polite crawl delay between pages — tokio::time::sleep, NOT std::thread::sleep
-        if idx + 1 < urls.len() {
+        if page_num < total {
             sleep(Duration::from_secs(crawl_delay)).await;
         }
     }

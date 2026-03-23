@@ -48,7 +48,7 @@ pub async fn fetch_sitemap_urls(
 
     let mut url_set: UrlSet = quick_xml::de::from_str(&body).ok()?;
 
-    // Empty sitemap (or sitemapindex) — trigger link-following fallback
+    // Empty sitemap — trigger link-following fallback
     if url_set.urls.is_empty() {
         return None;
     }
@@ -58,7 +58,22 @@ pub async fn fetch_sitemap_urls(
         .urls
         .sort_by(|a, b| b.priority.partial_cmp(&a.priority).unwrap_or(std::cmp::Ordering::Equal));
 
-    Some(url_set.urls.into_iter().map(|e| e.loc).collect())
+    // Filter to HTML-only locs. If a sitemapindex is served at /sitemap.xml,
+    // quick_xml serde deserialises <sitemap><loc> children into UrlEntry structs
+    // (field-name match, not element-name match), so all locs end in .xml.
+    // Returning None here lets the caller fall back to BFS link-following.
+    let html_locs: Vec<String> = url_set
+        .urls
+        .into_iter()
+        .filter(|e| is_html_url(&e.loc))
+        .map(|e| e.loc)
+        .collect();
+
+    if html_locs.is_empty() {
+        return None;
+    }
+
+    Some(html_locs)
 }
 
 /// Extracts same-origin links from an HTML document, resolved against `base`.
@@ -227,6 +242,33 @@ pub fn format_progress_unknown(current: usize, url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// When all locs in the parsed XML are non-HTML (e.g. a sitemapindex whose
+    /// <sitemap> children were matched by quick_xml serde), the HTML filter
+    /// must produce an empty vec — confirming BFS fallback would be triggered.
+    #[test]
+    fn test_sitemapindex_locs_are_filtered_out() {
+        let xml = r#"<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+            <sitemap><loc>https://example.com/sitemap-pages.xml</loc></sitemap>
+            <sitemap><loc>https://example.com/sitemap-blog.xml</loc></sitemap>
+        </sitemapindex>"#;
+
+        // quick_xml serde ignores <sitemap> elements because the field is
+        // renamed to "url" — so urls is empty and html_locs is also empty.
+        // Either way, the HTML-only filter must produce an empty result.
+        let url_set: UrlSet = quick_xml::de::from_str(xml).unwrap_or(UrlSet { urls: vec![] });
+        let html_locs: Vec<String> = url_set
+            .urls
+            .into_iter()
+            .filter(|e| is_html_url(&e.loc))
+            .map(|e| e.loc)
+            .collect();
+        assert!(
+            html_locs.is_empty(),
+            "sitemapindex locs should be filtered to empty, got: {:?}",
+            html_locs
+        );
+    }
 
     /// Parses a sitemap XML string and verifies priority-descending sort.
     #[test]
