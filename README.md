@@ -34,23 +34,33 @@ Open-source GEO (Generative Engine Optimization) analysis tool. Analyzes website
 
 ## Installation
 
+### macOS / Linux (one-liner)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/install.sh | sh
+```
+
+Works on macOS (Intel & Apple Silicon), Linux (x86_64 & arm64), and WSL.
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/install.ps1 | iex
+```
+
+### Windows (CMD)
+
+```cmd
+curl -fsSL https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/install.cmd -o install.cmd && install.cmd
+```
+
 ### From source (requires Rust 1.83+)
 
 ```bash
 git clone https://github.com/borabiricik/geodaddy-cli.git
 cd geodaddy-cli
 cargo build --release
-# Binary is at ./target/release/geodaddy
-```
-
-Add to PATH:
-
-```bash
-# macOS / Linux
 sudo cp target/release/geodaddy /usr/local/bin/
-
-# Or add to your shell profile
-export PATH="$PATH:/path/to/geodaddy-cli/target/release"
 ```
 
 ### Verify installation
