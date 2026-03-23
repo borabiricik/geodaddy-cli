@@ -26,6 +26,7 @@ use crate::analyzers::content::{
 use crate::analyzers::geo::{
     analyze_listicle, analyze_ai_bots, analyze_schema_stacking,
 };
+use crate::analyzers::performance::analyze_vitals;
 use crate::crawling::{
     fetch_sitemap_urls, collect_links_bfs, normalize_url, is_html_url,
     extract_crawl_delay, needs_js_rendering, aggregate_scores,
@@ -52,6 +53,11 @@ struct Cli {
     /// Note: --enable-js downloads Chromium (~150MB) on first use.
     #[arg(long)]
     enable_js: bool,
+
+    /// Measure Core Web Vitals (LCP, FCP, CLS, TTFB, TBT) via headless browser for every page.
+    /// Note: --vitals uses Chromium for measurement (~150MB download on first use).
+    #[arg(long)]
+    vitals: bool,
 }
 
 #[derive(Serialize)]
@@ -133,6 +139,23 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!("Failed to build BrowserConfig: {}", e))?;
         let (b, mut handler) = Browser::launch(config).await?;
         // CRITICAL: handler MUST be spawned or browser hangs (pitfall 1)
+        tokio::spawn(async move {
+            while let Some(_event) = handler.next().await {}
+        });
+        Some(b)
+    } else {
+        None
+    };
+
+    // Optionally launch dedicated vitals browser (D-01, D-02 — independent from --enable-js)
+    // Note: when both --vitals and --enable-js are active, two separate Browser instances run.
+    // This is intentional — see D-02 and RESEARCH.md Pitfall 6.
+    let vitals_browser: Option<Browser> = if cli.vitals {
+        let config = BrowserConfig::builder()
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build vitals BrowserConfig: {}", e))?;
+        let (b, mut handler) = Browser::launch(config).await?;
+        // CRITICAL: handler MUST be spawned or all CDP calls hang indefinitely
         tokio::spawn(async move {
             while let Some(_event) = handler.next().await {}
         });
@@ -235,6 +258,22 @@ async fn main() -> Result<()> {
         results.extend(analyze_ai_bots(&robots_body));
         results.push(analyze_schema_stacking(&html_doc));
 
+        // Core Web Vitals measurement — only when --vitals is active (D-01, D-03)
+        // Each page gets its own independent measurement via a fresh browser page.
+        if cli.vitals {
+            if let Some(ref vb) = vitals_browser {
+                match vb.new_page(page_url.as_str()).await {
+                    Ok(vp) => {
+                        let vitals_results = analyze_vitals(&vp).await;
+                        results.extend(vitals_results);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Vitals measurement failed for {}: {}", page_url, e);
+                    }
+                }
+            }
+        }
+
         let (page_score, page_categories) = calculate_score(&results);
 
         pages.push(PageResult {
@@ -261,6 +300,7 @@ async fn main() -> Result<()> {
                     technical: p.categories.technical,
                     content: p.categories.content,
                     geo: p.categories.geo,
+                    performance: p.categories.performance,
                 },
             )
         })
