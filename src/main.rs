@@ -1,5 +1,6 @@
 mod scoring;
 mod analyzers;
+mod crawling;
 
 use anyhow::Result;
 use clap::Parser;
@@ -17,6 +18,9 @@ use crate::analyzers::technical::{
 };
 use crate::analyzers::content::{
     analyze_heading_structure, analyze_json_ld, analyze_semantic_html, analyze_alt_text,
+};
+use crate::analyzers::geo::{
+    analyze_listicle, analyze_ai_bots, analyze_schema_stacking,
 };
 
 #[derive(Parser)]
@@ -76,7 +80,7 @@ async fn main() -> Result<()> {
         .build()?;
 
     // Step 5: robots.txt soft-warn check (D-03 — CRAWL-05)
-    let robots_blocked = check_robots(&client, &normalized_url).await;
+    let (robots_blocked, robots_body) = check_robots(&client, &normalized_url).await;
 
     // Step 5b: Fetch page HTML for analysis
     let html_body = match client.get(normalized_url.as_str()).send().await {
@@ -131,6 +135,15 @@ async fn main() -> Result<()> {
     // CONT-04: alt text (HTML)
     results.push(analyze_alt_text(&html_doc));
 
+    // GEO-01: listicle detection (HTML)
+    results.push(analyze_listicle(&html_doc));
+
+    // GEO-02: AI bot robots.txt audit (uses shared robots.txt body per D-22)
+    results.extend(analyze_ai_bots(&robots_body));
+
+    // GEO-03: schema stacking (HTML)
+    results.push(analyze_schema_stacking(&html_doc));
+
     // Step 5d: Calculate scores
     let (overall_score, category_scores) = calculate_score(&results);
 
@@ -161,7 +174,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn check_robots(client: &reqwest::Client, page_url: &Url) -> bool {
+async fn check_robots(client: &reqwest::Client, page_url: &Url) -> (bool, String) {
     // Build robots.txt URL from origin — MUST use set_path(), not string concat
     // (avoids pitfall of appending to non-root paths like /blog/post/1)
     let mut robots_url = page_url.clone();
@@ -180,5 +193,6 @@ async fn check_robots(client: &reqwest::Client, page_url: &Url) -> bool {
     let user_agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
     let mut matcher = robotstxt::DefaultMatcher::default();
     // Returns true if BLOCKED (inverted from allowed)
-    !matcher.one_agent_allowed_by_robots(&body, user_agent, page_url.as_str())
+    let blocked = !matcher.one_agent_allowed_by_robots(&body, user_agent, page_url.as_str());
+    (blocked, body)
 }
