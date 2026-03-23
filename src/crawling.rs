@@ -441,6 +441,27 @@ mod tests {
         assert_eq!(cats.technical, 100.0);
         assert_eq!(cats.content, 100.0);
         assert_eq!(cats.geo, 100.0);
+        assert_eq!(cats.performance, None);
+    }
+
+    #[test]
+    fn test_aggregate_score_performance_averages_some_values() {
+        let page_scores = vec![
+            (80.0, CategoryScores { technical: 80.0, content: 80.0, geo: 80.0, performance: Some(80.0) }),
+            (60.0, CategoryScores { technical: 60.0, content: 60.0, geo: 60.0, performance: Some(60.0) }),
+        ];
+        let (_, cats) = aggregate_scores(&page_scores);
+        assert_eq!(cats.performance, Some(70.0));
+    }
+
+    #[test]
+    fn test_aggregate_score_performance_none_when_all_none() {
+        let page_scores = vec![
+            (80.0, CategoryScores { technical: 80.0, content: 80.0, geo: 80.0, performance: None }),
+            (60.0, CategoryScores { technical: 60.0, content: 60.0, geo: 60.0, performance: None }),
+        ];
+        let (_, cats) = aggregate_scores(&page_scores);
+        assert_eq!(cats.performance, None);
     }
 
     #[test]
