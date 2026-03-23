@@ -1,6 +1,7 @@
 mod scoring;
 mod analyzers;
 mod crawling;
+mod beauty;
 
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
@@ -14,6 +15,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use url::Url;
 
+use crate::beauty::print_beauty_report;
 use crate::scoring::{AnalysisResult, CategoryScores, calculate_score};
 use crate::analyzers::technical::{
     analyze_broken_links, analyze_meta_tags, analyze_headings_tech,
@@ -58,10 +60,14 @@ struct Cli {
     /// Note: --vitals uses Chromium for measurement (~150MB download on first use).
     #[arg(long)]
     vitals: bool,
+
+    /// Output a colored, human-readable report instead of JSON.
+    #[arg(long)]
+    beauty: bool,
 }
 
 #[derive(Serialize)]
-struct Report {
+pub(crate) struct Report {
     schema_version: &'static str,
     url: String,               // base URL / site root per D-02
     crawled_at: String,
@@ -71,7 +77,7 @@ struct Report {
 }
 
 #[derive(Serialize)]
-struct PageResult {
+pub(crate) struct PageResult {
     url: String,
     robots_blocked: bool,
     score: f64,
@@ -317,8 +323,12 @@ async fn main() -> Result<()> {
         pages,
     };
 
-    // JSON to stdout — MUST happen before process::exit (CLI-01)
-    println!("{}", serde_json::to_string_pretty(&report)?);
+    // Output — beauty mode or JSON (CLI-01: output before process::exit)
+    if cli.beauty {
+        print_beauty_report(&report);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
 
     // --fail-under compares against aggregate score, not per-page (pitfall 6)
     if let Some(threshold) = cli.fail_under {
