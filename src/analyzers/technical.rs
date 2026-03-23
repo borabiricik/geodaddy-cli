@@ -13,7 +13,7 @@ pub fn analyze_broken_links() -> AnalysisResult {
         check: "tech-broken-links",
         status: Status::Warn,
         message: "Broken link detection requires site-wide crawl mode".to_string(),
-        recommendation: "Run geodaddy with site-wide crawling (Phase 4) to detect broken links across all pages".to_string(),
+        recommendation: "Run geodaddy with site-wide crawling to detect broken links across all pages".to_string(),
     }
 }
 
