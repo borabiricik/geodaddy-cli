@@ -188,7 +188,9 @@ async fn main() -> Result<()> {
         if let Ok(path) = std::env::var("CHROME_PATH") {
             builder = builder.chrome_executable(path);
         }
-        builder = builder.no_sandbox();
+        // Separate user-data-dir to avoid SingletonLock conflict when --enable-js is also active
+        let vitals_data_dir = std::env::temp_dir().join("geodaddy-vitals");
+        builder = builder.no_sandbox().user_data_dir(vitals_data_dir);
         let config = builder
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build vitals BrowserConfig: {}", e))?;
