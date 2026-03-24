@@ -162,7 +162,12 @@ async fn main() -> Result<()> {
 
     // Optionally launch headless browser (D-10 — only when --enable-js)
     let browser: Option<Browser> = if cli.enable_js {
-        let config = BrowserConfig::builder()
+        let mut builder = BrowserConfig::builder();
+        if let Ok(path) = std::env::var("CHROME_PATH") {
+            builder = builder.chrome_executable(path);
+        }
+        builder = builder.no_sandbox();
+        let config = builder
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build BrowserConfig: {}", e))?;
         let (b, mut handler) = Browser::launch(config).await?;
@@ -179,7 +184,12 @@ async fn main() -> Result<()> {
     // Note: when both --vitals and --enable-js are active, two separate Browser instances run.
     // This is intentional — see D-02 and RESEARCH.md Pitfall 6.
     let vitals_browser: Option<Browser> = if cli.vitals {
-        let config = BrowserConfig::builder()
+        let mut builder = BrowserConfig::builder();
+        if let Ok(path) = std::env::var("CHROME_PATH") {
+            builder = builder.chrome_executable(path);
+        }
+        builder = builder.no_sandbox();
+        let config = builder
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build vitals BrowserConfig: {}", e))?;
         let (b, mut handler) = Browser::launch(config).await?;
