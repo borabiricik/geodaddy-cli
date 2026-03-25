@@ -37,10 +37,6 @@
         "CI/CD integration with --fail-under threshold flag",
         "Structured JSON output — machine-readable, no runtime dependencies",
         "Runs completely locally — no API keys, no cloud dependencies"
-      ],
-      "screenshots": [
-        "https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/docs/screenshot-beauty.png",
-        "https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/docs/screenshot-json.png"
       ]
     }
   ]
