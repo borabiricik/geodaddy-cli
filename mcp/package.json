@@ -1,6 +1,6 @@
 {
   "name": "geodaddy-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server for geodaddy GEO/SEO analysis — analyze URLs for AI search engine optimization",
   "license": "MIT",
   "type": "module",
