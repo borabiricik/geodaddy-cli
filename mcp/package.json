@@ -1,8 +1,13 @@
 {
   "name": "geodaddy-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "MCP server for geodaddy GEO/SEO analysis — analyze URLs for AI search engine optimization",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/borabiricik/geodaddy-cli",
+    "directory": "mcp"
+  },
   "type": "module",
   "bin": {
     "geodaddy-mcp": "dist/index.js"

@@ -7,7 +7,7 @@ import { getBinaryPath, buildArgs, runGeodaddy } from "./binary.js";
 
 const server = new McpServer({
   name: "geodaddy-mcp",
-  version: "0.2.1",
+  version: "0.2.2",
 });
 
 server.registerTool(
