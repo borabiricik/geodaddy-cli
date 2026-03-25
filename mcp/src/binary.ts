@@ -17,19 +17,21 @@ export interface AnalyzeParams {
   beauty?: boolean;
 }
 
-export function getBinaryPath(): string {
+export function getBinaryPath(
+  checkExists: (path: string) => boolean = existsSync
+): string {
   const ext = process.platform === "win32" ? ".exe" : "";
   const binaryName = "geodaddy" + ext;
 
   // First check: installed via postinstall (bin/ directory next to dist/)
   const binPath = resolve(__dirname, "..", "bin", binaryName);
-  if (existsSync(binPath)) {
+  if (checkExists(binPath)) {
     return binPath;
   }
 
   // Second check: local dev via cargo build (target/release/ relative to cli/)
   const devPath = resolve(__dirname, "..", "..", "target", "release", binaryName);
-  if (existsSync(devPath)) {
+  if (checkExists(devPath)) {
     return devPath;
   }
 
