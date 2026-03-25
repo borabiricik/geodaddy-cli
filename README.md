@@ -27,6 +27,7 @@ Open-source GEO (Generative Engine Optimization) analysis tool. Analyzes website
   - [Performance (Core Web Vitals)](#performance-checks)
 - [JSON Report Schema](#json-report-schema)
 - [CI/CD Integration](#cicd-integration)
+- [MCP Server (AI Tool Integration)](#mcp-server-ai-tool-integration)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -366,6 +367,77 @@ geodaddy https://example.com --max-pages 50 > geo-report-$(date +%Y%m%d).json
 
 ---
 
+## MCP Server (AI Tool Integration)
+
+geodaddy ships an [MCP](https://modelcontextprotocol.io/) server that lets AI assistants (Claude Desktop, Claude Code, Cursor, etc.) run GEO/SEO analysis via tool calls.
+
+### Setup
+
+#### Claude Desktop
+
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "geodaddy": {
+      "command": "npx",
+      "args": ["-y", "geodaddy-mcp"]
+    }
+  }
+}
+```
+
+#### Claude Code
+
+```bash
+claude mcp add geodaddy -- npx -y geodaddy-mcp
+```
+
+#### Cursor
+
+Go to **Settings > MCP Servers > Add**, then set:
+- **Command:** `npx -y geodaddy-mcp`
+
+#### From source (development)
+
+```bash
+cd mcp
+npm install
+npm run build
+```
+
+The MCP server looks for the geodaddy binary in two locations:
+1. `mcp/bin/geodaddy` (auto-downloaded via postinstall from GitHub releases)
+2. `target/release/geodaddy` (local dev via `cargo build --release`)
+
+### Available Tool
+
+| Tool | Description |
+|------|-------------|
+| `analyze_url` | Run geodaddy GEO/SEO analysis on a URL. Returns JSON report with scores and fix recommendations. |
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | string | yes | URL to analyze (supports `http://localhost`) |
+| `max_pages` | number | no | Enable site crawling, stop after N pages |
+| `enable_js` | boolean | no | Enable JavaScript rendering |
+| `vitals` | boolean | no | Measure Core Web Vitals |
+| `fail_under` | number | no | Error if overall score is below threshold (0-100) |
+| `beauty` | boolean | no | Return human-readable output instead of JSON |
+
+### Example Prompt
+
+Once configured, ask your AI assistant:
+
+> "Analyze https://example.com for GEO optimization and suggest improvements"
+
+The assistant will call the `analyze_url` tool and interpret the results for you.
+
+---
+
 ## Contributing
 
 geodaddy is open source and welcomes contributions.
@@ -405,6 +477,14 @@ src/
     ├── content.rs       # cont-* checks
     ├── geo.rs           # geo-* checks
     └── performance.rs   # perf-* checks (Core Web Vitals)
+
+mcp/                     # MCP server (TypeScript)
+├── src/
+│   ├── index.ts         # MCP server entry point, analyze_url tool
+│   ├── binary.ts        # Binary resolution, arg building, subprocess runner
+│   └── install.ts       # Postinstall binary download from GitHub releases
+└── tests/
+    └── tool.test.ts     # Unit tests for buildArgs and getBinaryPath
 ```
 
 ### Adding a New Check
