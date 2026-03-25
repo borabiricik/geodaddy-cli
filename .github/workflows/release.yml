@@ -113,7 +113,7 @@ jobs:
       - name: Sync version from tag
         if: steps.mcp-check.outputs.changed == 'true'
         working-directory: mcp
-        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
 
       - name: Install and build
         if: steps.mcp-check.outputs.changed == 'true'
