@@ -53,6 +53,16 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **CLI-03**: CLI shows progress indicator during site crawl
 - [x] **CLI-04**: CLI has --help with clear usage documentation
 
+### MCP Server Integration
+
+- [ ] **MCP-01**: MCP server written in TypeScript using official @modelcontextprotocol/sdk (D-01)
+- [ ] **MCP-02**: MCP server uses stdio transport for local LLM client communication (D-02)
+- [ ] **MCP-03**: Single analyze_url tool registered with all CLI flags as parameters (D-04, D-05)
+- [ ] **MCP-04**: Raw JSON output passed through as MCP tool result content (D-07)
+- [ ] **MCP-05**: Errors return MCP error response with isError:true and stderr message (D-08)
+- [ ] **MCP-06**: geodaddy binary bundled via postinstall download from GitHub releases (D-03)
+- [ ] **MCP-07**: Published to npm, invokable via npx (D-09, D-10)
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -127,12 +137,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CLI-02 | Phase 1 | Complete |
 | CLI-03 | Phase 4 | Complete |
 | CLI-04 | Phase 1 | Complete |
+| MCP-01 | Phase 6 | Planned |
+| MCP-02 | Phase 6 | Planned |
+| MCP-03 | Phase 6 | Planned |
+| MCP-04 | Phase 6 | Planned |
+| MCP-05 | Phase 6 | Planned |
+| MCP-06 | Phase 6 | Planned |
+| MCP-07 | Phase 6 | Planned |
 
 **Coverage:**
-- v1 requirements: 28 total
-- Mapped to phases: 28
+- v1 requirements: 35 total
+- Mapped to phases: 35
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-23*
-*Last updated: 2026-03-23 after roadmap creation*
+*Last updated: 2026-03-25 after Phase 6 planning*

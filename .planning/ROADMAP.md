@@ -106,3 +106,14 @@ Plans:
 - [x] 05-01-PLAN.md — scoring.rs: CategoryScores + performance field, severity_points perf entries, calculate_score 4-way average; analyzers/mod.rs: pub mod performance
 - [x] 05-02-PLAN.md — analyzers/performance.rs: analyze_vitals + 5 classify_* functions + JS constants + unit tests
 - [x] 05-03-PLAN.md — main.rs wiring: --vitals flag, vitals_browser launch, per-page analyze_vitals call; crawling.rs: aggregate_scores performance averaging; integration tests
+
+### Phase 6: Add local MCP server for LLM-driven CLI interaction
+
+**Goal:** TypeScript MCP server exposing geodaddy CLI as an `analyze_url` tool over stdio transport, with postinstall binary download from GitHub releases for self-contained npm distribution
+**Requirements**: MCP-01, MCP-02, MCP-03, MCP-04, MCP-05, MCP-06, MCP-07
+**Depends on:** Phase 5
+**Plans:** 2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — TypeScript project scaffold, MCP server with analyze_url tool, binary resolution, unit tests
+- [ ] 06-02-PLAN.md — Postinstall binary download script, package.json wiring, end-to-end verification
