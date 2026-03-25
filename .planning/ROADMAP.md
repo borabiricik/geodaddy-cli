@@ -115,5 +115,5 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — TypeScript project scaffold, MCP server with analyze_url tool, binary resolution, unit tests
+- [x] 06-01-PLAN.md — TypeScript project scaffold, MCP server with analyze_url tool, binary resolution, unit tests
 - [ ] 06-02-PLAN.md — Postinstall binary download script, package.json wiring, end-to-end verification
