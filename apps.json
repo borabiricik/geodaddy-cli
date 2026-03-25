@@ -1,0 +1,47 @@
+{
+  "$schema": "https://wvw.dev/apps.schema.json",
+  "store": {
+    "name": "Bora Biricik",
+    "developer": "Bora Biricik",
+    "tagline": "Open source tools for developers.",
+    "github": "https://github.com/borabiricik"
+  },
+  "categories": [
+    { "id": "cli", "name": "CLI Apps" },
+    { "id": "developer-tools", "name": "Developer Tools" }
+  ],
+  "apps": [
+    {
+      "id": "geodaddy",
+      "name": "geodaddy",
+      "developer": "Bora Biricik",
+      "subtitle": "GEO analysis tool for AI-powered search optimization",
+      "description": "Analyze any website for Generative Engine Optimization — surface actionable issues to rank in ChatGPT, Perplexity, and Google AI Overviews.",
+      "longDescription": "geodaddy is an open source CLI tool for Generative Engine Optimization (GEO). It crawls any URL — including localhost — and produces a structured JSON report with scores across four categories: Technical SEO, Content Structure, GEO-specific signals, and Core Web Vitals. Each issue comes with a specific, actionable fix recommendation. Built in Rust for speed and distributed as a single binary with no runtime dependencies. Perfect for CI/CD pipelines, local dev testing, and automated GEO audits.",
+      "icon": null,
+      "category": ["cli", "developer-tools"],
+      "platform": "CLI",
+      "price": "Free",
+      "github": "https://github.com/borabiricik/geodaddy-cli",
+      "homepage": "https://geodaddy.dev",
+      "language": "Rust",
+      "downloadUrl": "https://geodaddy.dev/docs/cli",
+      "requirements": "macOS, Linux, or Windows (x86_64 / ARM64). No runtime dependencies.",
+      "features": [
+        "Technical SEO analysis: meta tags, headings, HTTPS, mobile viewport, robots.txt, sitemap",
+        "GEO-specific checks: AI bot access audit (GPTBot, ClaudeBot, Perplexity), Schema.org triple stacking, listicle detection",
+        "Content structure scoring: heading hierarchy, JSON-LD, semantic HTML, alt text",
+        "Core Web Vitals measurement via headless browser (--vitals flag)",
+        "Site-wide crawling with sitemap-first strategy (--max-pages flag)",
+        "Optional JavaScript rendering for SPAs (--enable-js flag)",
+        "CI/CD integration with --fail-under threshold flag",
+        "Structured JSON output — machine-readable, no runtime dependencies",
+        "Runs completely locally — no API keys, no cloud dependencies"
+      ],
+      "screenshots": [
+        "https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/docs/screenshot-beauty.png",
+        "https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/docs/screenshot-json.png"
+      ]
+    }
+  ]
+}
