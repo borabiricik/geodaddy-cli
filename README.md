@@ -1,5 +1,7 @@
 # geodaddy
 
+![geodaddy results screenshot](docs/screenshot-results.png)
+
 Open-source GEO (Generative Engine Optimization) analysis tool. Analyzes websites to help your content rank in AI-powered search engines — ChatGPT, Perplexity, Google AI Overviews, and similar generative engines.
 
 - Runs **completely locally** — no accounts, no API keys, no cloud
