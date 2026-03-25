@@ -1,0 +1,31 @@
+{
+  "name": "geodaddy-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for geodaddy GEO/SEO analysis — analyze URLs for AI search engine optimization",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "geodaddy-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.8.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ]
+}
