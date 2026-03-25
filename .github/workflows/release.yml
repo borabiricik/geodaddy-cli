@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build:
@@ -76,3 +77,55 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.ASSET }}
+
+  publish-mcp:
+    name: Publish MCP to npm
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check for MCP changes
+        id: mcp-check
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            CHANGES=$(git diff --name-only "$PREV_TAG" HEAD -- mcp/ | head -1)
+            if [ -n "$CHANGES" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Sync version from tag
+        if: steps.mcp-check.outputs.changed == 'true'
+        working-directory: mcp
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
+
+      - name: Install and build
+        if: steps.mcp-check.outputs.changed == 'true'
+        working-directory: mcp
+        run: npm ci && npm run build
+
+      - name: Run tests
+        if: steps.mcp-check.outputs.changed == 'true'
+        working-directory: mcp
+        run: npx vitest run
+
+      - name: Publish to npm
+        if: steps.mcp-check.outputs.changed == 'true'
+        working-directory: mcp
+        run: npm publish --access public

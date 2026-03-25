@@ -1,4 +1,4 @@
-import { createWriteStream, mkdirSync, existsSync, chmodSync, unlinkSync } from "node:fs";
+import { createWriteStream, mkdirSync, existsSync, chmodSync, unlinkSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
@@ -7,9 +7,9 @@ import https from "node:https";
 import http from "node:http";
 
 const REPO = "borabiricik/geodaddy-cli";
-const VERSION = "v0.1.1";
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, "..", "package.json"), "utf-8"));
+const VERSION = `v${pkg.version}`;
 
 function getPlatformTarget(): string {
   const map: Record<string, string> = {
