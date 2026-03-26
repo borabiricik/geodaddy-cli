@@ -188,9 +188,13 @@ async fn main() -> Result<()> {
         if let Ok(path) = std::env::var("CHROME_PATH") {
             builder = builder.chrome_executable(path);
         }
-        // Separate user-data-dir to avoid SingletonLock conflict when --enable-js is also active
-        let vitals_data_dir = std::env::temp_dir().join("geodaddy-vitals");
-        builder = builder.no_sandbox().user_data_dir(vitals_data_dir);
+        // Unique user-data-dir per invocation to avoid SingletonLock conflicts
+        // between concurrent requests and stale locks from crashed processes
+        let vitals_data_dir = std::env::temp_dir().join(format!(
+            "geodaddy-vitals-{}",
+            std::process::id()
+        ));
+        builder = builder.no_sandbox().user_data_dir(vitals_data_dir.clone());
         let config = builder
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build vitals BrowserConfig: {}", e))?;
@@ -362,6 +366,15 @@ async fn main() -> Result<()> {
         print_beauty_report(&report);
     } else {
         println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    // Clean up per-process vitals data dir to avoid disk buildup
+    if cli.vitals {
+        let vitals_data_dir = std::env::temp_dir().join(format!(
+            "geodaddy-vitals-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&vitals_data_dir);
     }
 
     // --fail-under compares against aggregate score, not per-page (pitfall 6)
