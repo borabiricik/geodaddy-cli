@@ -19,7 +19,7 @@ fn fmt_perf(perf: Option<f64>) -> String {
     }
 }
 
-pub(crate) fn print_beauty_report(report: &Report) {
+pub fn print_beauty_report(report: &Report) {
     // ── Header ────────────────────────────────────────────────────────────────
     println!("{}", "geodaddy — GEO Analysis Report".bold());
     println!("{}", format!("URL: {}", report.url).bold());

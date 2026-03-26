@@ -1,8 +1,12 @@
 [package]
 name = "geodaddy"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
+
+[lib]
+name = "geodaddy"
+path = "src/lib.rs"
 
 [[bin]]
 name = "geodaddy"

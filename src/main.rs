@@ -1,39 +1,11 @@
-mod scoring;
-mod analyzers;
-mod crawling;
-mod beauty;
-
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
 use clap::Parser;
-use chrono::Utc;
 use futures::StreamExt;
-use scraper::Html;
-use serde::Serialize;
-use std::collections::HashSet;
 use std::time::Duration;
-use tokio::time::sleep;
-use url::Url;
 
-use crate::beauty::print_beauty_report;
-use crate::scoring::{AnalysisResult, CategoryScores, calculate_score};
-use crate::analyzers::technical::{
-    analyze_broken_links, analyze_meta_tags, analyze_headings_tech,
-    analyze_mobile_viewport, analyze_https,
-    analyze_redirect_chains, analyze_robots_txt, analyze_sitemap,
-};
-use crate::analyzers::content::{
-    analyze_heading_structure, analyze_json_ld, analyze_semantic_html, analyze_alt_text,
-};
-use crate::analyzers::geo::{
-    analyze_listicle, analyze_ai_bots, analyze_schema_stacking,
-};
-use crate::analyzers::performance::analyze_vitals;
-use crate::crawling::{
-    fetch_sitemap_urls, collect_links_bfs, normalize_url, is_html_url,
-    extract_crawl_delay, needs_js_rendering, aggregate_scores,
-    format_progress_known, format_progress_unknown,
-};
+use geodaddy::{AnalysisConfig, analyze};
+use geodaddy::beauty::print_beauty_report;
 
 #[derive(Parser)]
 #[command(name = "geodaddy")]
@@ -66,39 +38,18 @@ struct Cli {
     beauty: bool,
 }
 
-#[derive(Serialize)]
-pub(crate) struct Report {
-    schema_version: &'static str,
-    url: String,               // base URL / site root per D-02
-    crawled_at: String,
-    score: f64,                // aggregate average across all pages per D-01
-    categories: CategoryScores, // aggregate per D-01
-    pages: Vec<PageResult>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct PageResult {
-    url: String,
-    robots_blocked: bool,
-    score: f64,
-    categories: CategoryScores,
-    results: Vec<AnalysisResult>,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Init tracing — MUST use stderr writer, not stdout
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
-            tracing_subscriber::filter::EnvFilter::from_default_env()
+            tracing_subscriber::EnvFilter::try_from_env("RUST_LOG")
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("geodaddy=info")),
         )
         .init();
 
     let cli = Cli::parse();
-
-    let base_url = Url::parse(&cli.url)
-        .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", cli.url, e))?;
 
     // Build reqwest HTTP client with sensible defaults
     let client = reqwest::Client::builder()
@@ -109,58 +60,13 @@ async fn main() -> Result<()> {
         .connect_timeout(Duration::from_secs(10))
         .build()?;
 
-    // Connectivity check — fail fast if the target is unreachable
-    match client.head(base_url.as_str()).send().await {
-        Ok(_) => {}
-        Err(e) => {
-            if e.is_connect() || e.is_timeout() {
-                anyhow::bail!(
-                    "Cannot connect to '{}': {}. Check the URL and ensure the server is running.",
-                    cli.url,
-                    e
-                );
-            }
-            // Non-connection errors (e.g. TLS, redirect limits) — proceed anyway
-            tracing::warn!("Connectivity pre-check warning for {}: {}", cli.url, e);
-        }
-    }
-
-    // robots.txt fetched ONCE at crawl start (anti-pattern: re-fetching per URL)
-    let (_, robots_body) = check_robots(&client, &base_url).await;
-    let crawl_delay = extract_crawl_delay(&robots_body).unwrap_or(1);
-
-    // Determine URL list — crawling is opt-in via --max-pages (CRAWL-01 / CRAWL-02)
-    // Without --max-pages: single-URL mode, no sitemap or BFS invoked.
-    // With --max-pages: sitemap-first strategy, falling back to BFS if no sitemap.
-    // Track whether total is known upfront (sitemap) or unknown (link-following/single).
-    let (urls, is_sitemap_driven): (Vec<String>, bool) = if cli.max_pages.is_none() {
-        // No --max-pages: analyze only the given URL, no crawling
-        (vec![cli.url.clone()], false)
-    } else {
-        match fetch_sitemap_urls(&client, &base_url).await {
-            Some(mut sitemap_urls) => {
-                // Apply --max-pages cap to sitemap list (D-04)
-                if let Some(max) = cli.max_pages {
-                    sitemap_urls.truncate(max);
-                }
-                (sitemap_urls, true)
-            }
-            None => {
-                // Sitemap unavailable — fall back to BFS depth 2 (D-05)
-                eprintln!("No sitemap.xml found — falling back to link-following (depth 2)");
-                (collect_links_bfs(&client, &base_url, 2, cli.max_pages).await, false)
-            }
-        }
+    let config = AnalysisConfig {
+        max_pages: cli.max_pages,
+        enable_js: cli.enable_js,
+        vitals: cli.vitals,
     };
 
-    // Filter URL list to HTML-only before the loop so that `total` and the
-    // progress counter both reflect only pages that will actually be analyzed.
-    // Non-HTML resources (feeds, media, sitemaps, etc.) are discarded here
-    // rather than inside the loop to avoid the enumerate() index skew bug.
-    let urls: Vec<String> = urls.into_iter().filter(|u| is_html_url(u)).collect();
-    let total = urls.len();
-
-    // Optionally launch headless browser (D-10 — only when --enable-js)
+    // Optionally launch headless browser (only when --enable-js)
     let js_data_dir = std::env::temp_dir().join(format!(
         "geodaddy-js-{}",
         std::process::id()
@@ -185,26 +91,21 @@ async fn main() -> Result<()> {
         None
     };
 
-    // Optionally launch dedicated vitals browser (D-01, D-02 — independent from --enable-js)
-    // Note: when both --vitals and --enable-js are active, two separate Browser instances run.
-    // This is intentional — see D-02 and RESEARCH.md Pitfall 6.
+    // Optionally launch dedicated vitals browser (independent from --enable-js)
+    let vitals_data_dir = std::env::temp_dir().join(format!(
+        "geodaddy-vitals-{}",
+        std::process::id()
+    ));
     let vitals_browser: Option<Browser> = if cli.vitals {
         let mut builder = BrowserConfig::builder();
         if let Ok(path) = std::env::var("CHROME_PATH") {
             builder = builder.chrome_executable(path);
         }
-        // Unique user-data-dir per invocation to avoid SingletonLock conflicts
-        // between concurrent requests and stale locks from crashed processes
-        let vitals_data_dir = std::env::temp_dir().join(format!(
-            "geodaddy-vitals-{}",
-            std::process::id()
-        ));
         builder = builder.no_sandbox().user_data_dir(vitals_data_dir.clone());
         let config = builder
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build vitals BrowserConfig: {}", e))?;
         let (b, mut handler) = Browser::launch(config).await?;
-        // CRITICAL: handler MUST be spawned or all CDP calls hang indefinitely
         tokio::spawn(async move {
             while let Some(_event) = handler.next().await {}
         });
@@ -213,160 +114,16 @@ async fn main() -> Result<()> {
         None
     };
 
-    let mut pages: Vec<PageResult> = Vec::new();
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut page_num: usize = 0;
+    let report = analyze(
+        &cli.url,
+        &config,
+        &client,
+        browser.as_ref(),
+        vitals_browser.as_ref(),
+    )
+    .await?;
 
-    for url_str in &urls {
-        // Deduplicate (D-06)
-        let norm = normalize_url(url_str).unwrap_or_else(|| url_str.clone());
-        if visited.contains(&norm) {
-            continue;
-        }
-        visited.insert(norm.clone());
-
-        // All URLs in `urls` are already HTML-only (filtered before the loop).
-        // page_num counts only pages that reach this point so the counter is
-        // always contiguous: 1, 2, 3 … with no gaps from skipped resources.
-        page_num += 1;
-
-        // Progress to stderr (D-07/D-08, CLI-03)
-        if is_sitemap_driven {
-            eprintln!("{}", format_progress_known(page_num, total, url_str));
-        } else {
-            eprintln!("{}", format_progress_unknown(page_num, url_str));
-        }
-
-        // Check robots.txt per-URL using cached body
-        let page_url = match Url::parse(&norm) {
-            Ok(u) => u,
-            Err(_) => {
-                tracing::warn!("Skipping invalid URL: {}", norm);
-                continue;
-            }
-        };
-        let mut robots_matcher = robotstxt::DefaultMatcher::default();
-        let user_agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-        let robots_blocked = !robots_matcher.one_agent_allowed_by_robots(
-            &robots_body,
-            user_agent,
-            page_url.as_str(),
-        );
-
-        // Fetch HTML — reqwest first, then headless if enabled and thin (D-09/D-10)
-        let html_body = match client.get(page_url.as_str()).send().await {
-            Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
-            Ok(resp) => {
-                tracing::warn!("HTTP {} fetching {}", resp.status(), page_url);
-                String::new()
-            }
-            Err(e) => {
-                tracing::warn!("Failed to fetch {}: {}", page_url, e);
-                String::new()
-            }
-        };
-
-        let mut html_doc = Html::parse_document(&html_body);
-
-        // JS detection and re-fetch (D-09) — only when --enable-js is active
-        if cli.enable_js {
-            if let Some(ref b) = browser {
-                if needs_js_rendering(&html_doc) {
-                    tracing::info!(
-                        "JS-rendered page detected: {} — re-fetching via headless browser",
-                        page_url
-                    );
-                    match b.new_page(page_url.as_str()).await {
-                        Ok(page) => {
-                            if let Ok(content) = page.content().await {
-                                html_doc = Html::parse_document(&content);
-                            }
-                        }
-                        Err(e) => tracing::warn!("Headless fetch failed for {}: {}", page_url, e),
-                    }
-                }
-            }
-        }
-
-        // Run all analyzers (same sequence as single-page flow — unchanged)
-        let mut results: Vec<AnalysisResult> = Vec::new();
-
-        results.push(analyze_broken_links());
-        results.push(analyze_redirect_chains(&client, &page_url).await);
-        results.extend(analyze_meta_tags(&html_doc));
-        results.push(analyze_headings_tech(&html_doc));
-        results.push(analyze_mobile_viewport(&html_doc));
-        results.push(analyze_robots_txt(&client, &page_url).await);
-        results.push(analyze_sitemap(&client, &page_url).await);
-        results.push(analyze_https(&html_doc, &page_url));
-        results.push(analyze_heading_structure(&html_doc));
-        results.push(analyze_json_ld(&html_doc));
-        results.push(analyze_semantic_html(&html_doc));
-        results.push(analyze_alt_text(&html_doc));
-        results.push(analyze_listicle(&html_doc));
-        results.extend(analyze_ai_bots(&robots_body));
-        results.push(analyze_schema_stacking(&html_doc));
-
-        // Core Web Vitals measurement — only when --vitals is active (D-01, D-03)
-        // Each page gets its own independent measurement via a fresh browser page.
-        if cli.vitals {
-            if let Some(ref vb) = vitals_browser {
-                match vb.new_page(page_url.as_str()).await {
-                    Ok(vp) => {
-                        let vitals_results = analyze_vitals(&vp).await;
-                        results.extend(vitals_results);
-                    }
-                    Err(e) => {
-                        tracing::warn!("Vitals measurement failed for {}: {}", page_url, e);
-                    }
-                }
-            }
-        }
-
-        let (page_score, page_categories) = calculate_score(&results);
-
-        pages.push(PageResult {
-            url: norm.clone(),
-            robots_blocked,
-            score: page_score,
-            categories: page_categories,
-            results,
-        });
-
-        // Polite crawl delay between pages — tokio::time::sleep, NOT std::thread::sleep
-        if page_num < total {
-            sleep(Duration::from_secs(crawl_delay)).await;
-        }
-    }
-
-    // Aggregate score (D-01) — average across all pages
-    let page_score_tuples: Vec<(f64, CategoryScores)> = pages
-        .iter()
-        .map(|p| {
-            (
-                p.score,
-                CategoryScores {
-                    technical: p.categories.technical,
-                    content: p.categories.content,
-                    geo: p.categories.geo,
-                    performance: p.categories.performance,
-                },
-            )
-        })
-        .collect();
-    let (agg_score, agg_categories) = aggregate_scores(&page_score_tuples);
-
-    // Build report — url is base URL per D-02
-    let report = Report {
-        schema_version: "1",
-        url: cli.url.clone(),
-        crawled_at: Utc::now().to_rfc3339(),
-        score: agg_score,
-        categories: agg_categories,
-        pages,
-    };
-
-    // Output — beauty mode or JSON (CLI-01: output before process::exit)
+    // Output — beauty mode or JSON
     if cli.beauty {
         print_beauty_report(&report);
     } else {
@@ -378,38 +135,15 @@ async fn main() -> Result<()> {
         let _ = std::fs::remove_dir_all(&js_data_dir);
     }
     if cli.vitals {
-        let vitals_data_dir = std::env::temp_dir().join(format!(
-            "geodaddy-vitals-{}",
-            std::process::id()
-        ));
         let _ = std::fs::remove_dir_all(&vitals_data_dir);
     }
 
-    // --fail-under compares against aggregate score, not per-page (pitfall 6)
+    // --fail-under compares against aggregate score
     if let Some(threshold) = cli.fail_under {
-        if agg_score < threshold {
+        if report.score < threshold {
             std::process::exit(1);
         }
     }
 
     Ok(())
-}
-
-async fn check_robots(client: &reqwest::Client, page_url: &Url) -> (bool, String) {
-    // Build robots.txt URL from origin — MUST use set_path(), not string concat
-    let mut robots_url = page_url.clone();
-    robots_url.set_path("/robots.txt");
-    robots_url.set_query(None);
-    robots_url.set_fragment(None);
-
-    let body = match client.get(robots_url.as_str()).send().await {
-        Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
-        // 404, network error, localhost with no robots.txt = allow all (D-03)
-        _ => String::new(),
-    };
-
-    let user_agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-    let mut matcher = robotstxt::DefaultMatcher::default();
-    let blocked = !matcher.one_agent_allowed_by_robots(&body, user_agent, page_url.as_str());
-    (blocked, body)
 }
