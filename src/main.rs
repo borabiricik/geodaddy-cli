@@ -161,12 +161,17 @@ async fn main() -> Result<()> {
     let total = urls.len();
 
     // Optionally launch headless browser (D-10 — only when --enable-js)
+    let js_data_dir = std::env::temp_dir().join(format!(
+        "geodaddy-js-{}",
+        std::process::id()
+    ));
     let browser: Option<Browser> = if cli.enable_js {
         let mut builder = BrowserConfig::builder();
         if let Ok(path) = std::env::var("CHROME_PATH") {
             builder = builder.chrome_executable(path);
         }
-        builder = builder.no_sandbox();
+        // Unique user-data-dir per invocation to avoid SingletonLock conflicts
+        builder = builder.no_sandbox().user_data_dir(js_data_dir.clone());
         let config = builder
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build BrowserConfig: {}", e))?;
@@ -368,7 +373,10 @@ async fn main() -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&report)?);
     }
 
-    // Clean up per-process vitals data dir to avoid disk buildup
+    // Clean up per-process browser data dirs to avoid disk buildup
+    if cli.enable_js {
+        let _ = std::fs::remove_dir_all(&js_data_dir);
+    }
     if cli.vitals {
         let vitals_data_dir = std::env::temp_dir().join(format!(
             "geodaddy-vitals-{}",
