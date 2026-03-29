@@ -25,6 +25,12 @@ use crate::analyzers::content::{
 use crate::analyzers::geo::{
     analyze_listicle, analyze_ai_bots, analyze_schema_stacking,
 };
+use crate::analyzers::geo_llms::analyze_llms_txt;
+use crate::analyzers::geo_directives::{analyze_ai_meta_directives, analyze_ai_header_directives};
+use crate::analyzers::geo_citations::{analyze_citations, analyze_faq_quality};
+use crate::analyzers::geo_entities::analyze_entities;
+use crate::analyzers::geo_query::analyze_query_optimization;
+use crate::analyzers::geo_freshness::{analyze_freshness, analyze_howto_schema};
 use crate::analyzers::performance::analyze_vitals;
 use crate::crawling::{
     fetch_sitemap_urls, collect_links_bfs, normalize_url, is_html_url,
@@ -93,6 +99,9 @@ pub async fn analyze(
     let (_, robots_body) = check_robots(client, &base_url).await;
     let crawl_delay = extract_crawl_delay(&robots_body).unwrap_or(1);
 
+    // llms.txt fetched ONCE at crawl start (site-wide resource, like robots.txt)
+    let llms_txt_body = fetch_llms_txt(client, &base_url).await;
+
     // Determine URL list — crawling is opt-in via max_pages
     let (urls, is_sitemap_driven): (Vec<String>, bool) = if config.max_pages.is_none() {
         (vec![url.to_string()], false)
@@ -153,15 +162,20 @@ pub async fn analyze(
         );
 
         // Fetch HTML — reqwest first, then headless if enabled and thin
-        let html_body = match client.get(page_url.as_str()).send().await {
-            Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
+        // Headers cloned BEFORE .text() consumes the response body
+        let (html_body, response_headers) = match client.get(page_url.as_str()).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                let headers = resp.headers().clone();
+                let body = resp.text().await.unwrap_or_default();
+                (body, headers)
+            }
             Ok(resp) => {
                 tracing::warn!("HTTP {} fetching {}", resp.status(), page_url);
-                String::new()
+                (String::new(), reqwest::header::HeaderMap::new())
             }
             Err(e) => {
                 tracing::warn!("Failed to fetch {}: {}", page_url, e);
-                String::new()
+                (String::new(), reqwest::header::HeaderMap::new())
             }
         };
 
@@ -212,6 +226,17 @@ pub async fn analyze(
         results.push(analyze_listicle(&html_doc));
         results.extend(analyze_ai_bots(&robots_body));
         results.push(analyze_schema_stacking(&html_doc));
+
+        // Phase 7: GEO metrics expansion
+        results.push(analyze_llms_txt(&llms_txt_body));
+        results.push(analyze_ai_meta_directives(&html_doc));
+        results.push(analyze_ai_header_directives(&response_headers));
+        results.extend(analyze_citations(&html_doc));
+        results.push(analyze_faq_quality(&html_doc));
+        results.extend(analyze_entities(&html_doc));
+        results.extend(analyze_query_optimization(&html_doc));
+        results.push(analyze_freshness(&html_doc, &response_headers));
+        results.push(analyze_howto_schema(&html_doc));
 
         // Core Web Vitals measurement — only when vitals is active
         if config.vitals {
@@ -275,6 +300,19 @@ pub async fn analyze(
         categories: agg_categories,
         pages,
     })
+}
+
+/// Fetch /llms.txt for the given base URL. Returns body or empty string on failure.
+async fn fetch_llms_txt(client: &reqwest::Client, base_url: &Url) -> String {
+    let mut llms_url = base_url.clone();
+    llms_url.set_path("/llms.txt");
+    llms_url.set_query(None);
+    llms_url.set_fragment(None);
+
+    match client.get(llms_url.as_str()).send().await {
+        Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 /// Fetch and check robots.txt for the given URL.
