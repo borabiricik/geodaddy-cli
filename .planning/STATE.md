@@ -120,9 +120,10 @@ None yet.
 | 260323-v8s | Add --beauty flag for colored human-readable CLI output | 2026-03-23 | 34f2072 | [260323-v8s-add-beauty-flag-for-colored-human-readab](./quick/260323-v8s-add-beauty-flag-for-colored-human-readab/) |
 | 260323-vfu | Fix crawling behavior when --max-pages is absent (single-URL default mode) | 2026-03-23 | af98719 | [260323-vfu-fix-crawling-behavior-when-max-pages-is-](./quick/260323-vfu-fix-crawling-behavior-when-max-pages-is-/) |
 | 260323-vxm | Set up GitHub Actions CI and release pipeline (5 cross-platform targets) | 2026-03-23 | c92fe5b | [260323-vxm-set-up-github-actions-release-pipeline-f](./quick/260323-vxm-set-up-github-actions-release-pipeline-f/) |
+| 260329-toh | Release CLI project as version 0.4.0 | 2026-03-29 | 4cf5f23 | [260329-toh-release-cli-project-as-version-0-4-0](./quick/260329-toh-release-cli-project-as-version-0-4-0/) |
 
 ## Session Continuity
 
-Last session: 2026-03-29T17:01:47.835Z
-Stopped at: Completed 07-04-PLAN.md
+Last session: 2026-03-29T18:27:00Z
+Stopped at: Completed 260329-toh (quick task - release v0.4.0)
 Resume file: None
