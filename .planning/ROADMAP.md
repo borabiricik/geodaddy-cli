@@ -126,7 +126,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Module scaffold, scoring.rs severity entries (18 new IDs), geo_llms.rs, geo_directives.rs
+- [x] 07-01-PLAN.md — Module scaffold, scoring.rs severity entries (18 new IDs), geo_llms.rs, geo_directives.rs
 - [ ] 07-02-PLAN.md — geo_citations.rs (4 citation checks + FAQ quality), geo_entities.rs (4 entity checks)
 - [ ] 07-03-PLAN.md — geo_query.rs (4 query optimization checks), geo_freshness.rs (freshness + HowTo)
 - [ ] 07-04-PLAN.md — lib.rs wiring: llms.txt fetch, HTTP header capture, all new analyzer calls
