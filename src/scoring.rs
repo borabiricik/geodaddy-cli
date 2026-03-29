@@ -36,6 +36,15 @@ pub(crate) fn severity_points(check: &str) -> u32 {
         | "cont-heading-structure"
         | "cont-alt-text" => 5,
         "tech-sitemap-xml" | "cont-semantic-html" => 2,
+        "geo-llms-txt" | "geo-freshness" => 10,
+        "geo-ai-meta-directives" | "geo-ai-header-directives"
+        | "geo-citation-stats" | "geo-citation-sources"
+        | "geo-citation-quotes" | "geo-citation-references"
+        | "geo-entity-schema" | "geo-entity-author"
+        | "geo-query-qa-patterns" | "geo-query-summary"
+        | "geo-query-faq" | "geo-howto-schema" => 5,
+        "geo-entity-about" | "geo-entity-proper-nouns"
+        | "geo-query-snippet" | "geo-faq-quality" => 2,
         "geo-listicle" | "geo-schema-stacking" => 5,
         _ if check.starts_with("geo-ai-bot-") => 10,
         "perf-lcp" => 10,
@@ -241,6 +250,36 @@ mod tests {
         assert_eq!(severity_points("perf-cls"), 5);
         assert_eq!(severity_points("perf-ttfb"), 5);
         assert_eq!(severity_points("perf-tbt"), 5);
+    }
+
+    #[test]
+    fn test_geo_new_critical_severity_10() {
+        assert_eq!(severity_points("geo-llms-txt"), 10);
+        assert_eq!(severity_points("geo-freshness"), 10);
+    }
+
+    #[test]
+    fn test_geo_new_standard_severity_5() {
+        assert_eq!(severity_points("geo-ai-meta-directives"), 5);
+        assert_eq!(severity_points("geo-ai-header-directives"), 5);
+        assert_eq!(severity_points("geo-citation-stats"), 5);
+        assert_eq!(severity_points("geo-citation-sources"), 5);
+        assert_eq!(severity_points("geo-citation-quotes"), 5);
+        assert_eq!(severity_points("geo-citation-references"), 5);
+        assert_eq!(severity_points("geo-entity-schema"), 5);
+        assert_eq!(severity_points("geo-entity-author"), 5);
+        assert_eq!(severity_points("geo-query-qa-patterns"), 5);
+        assert_eq!(severity_points("geo-query-summary"), 5);
+        assert_eq!(severity_points("geo-query-faq"), 5);
+        assert_eq!(severity_points("geo-howto-schema"), 5);
+    }
+
+    #[test]
+    fn test_geo_new_info_severity_2() {
+        assert_eq!(severity_points("geo-entity-about"), 2);
+        assert_eq!(severity_points("geo-entity-proper-nouns"), 2);
+        assert_eq!(severity_points("geo-query-snippet"), 2);
+        assert_eq!(severity_points("geo-faq-quality"), 2);
     }
 
     #[test]
