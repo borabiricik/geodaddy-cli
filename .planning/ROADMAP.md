@@ -117,3 +117,16 @@ Plans:
 Plans:
 - [x] 06-01-PLAN.md — TypeScript project scaffold, MCP server with analyze_url tool, binary resolution, unit tests
 - [ ] 06-02-PLAN.md — Postinstall binary download script, package.json wiring, end-to-end verification
+
+### Phase 7: Research and implement missing GEO metrics (llms.txt, AI crawler directives, citation signals, entity coverage, conversational query optimization)
+
+**Goal:** Add 18 new GEO-specific analyzers across 6 modules (llms.txt, AI directives, citation signals, entity coverage, conversational query optimization, freshness/HowTo) with severity-based scoring, expanding the geo category from 8 to 26 checks
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11, D-12, D-13, D-14, D-15, D-16, D-17
+**Depends on:** Phase 6
+**Plans:** 4 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — Module scaffold, scoring.rs severity entries (18 new IDs), geo_llms.rs, geo_directives.rs
+- [ ] 07-02-PLAN.md — geo_citations.rs (4 citation checks + FAQ quality), geo_entities.rs (4 entity checks)
+- [ ] 07-03-PLAN.md — geo_query.rs (4 query optimization checks), geo_freshness.rs (freshness + HowTo)
+- [ ] 07-04-PLAN.md — lib.rs wiring: llms.txt fetch, HTTP header capture, all new analyzer calls
