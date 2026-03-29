@@ -133,7 +133,7 @@ pub fn analyze_ai_bots(robots_body: &str) -> Vec<AnalysisResult> {
 }
 
 /// Extract @type values from a JSON-LD value, handling @graph arrays.
-fn extract_types(val: &Value, types: &mut HashSet<String>) {
+pub(crate) fn extract_types(val: &Value, types: &mut HashSet<String>) {
     // Direct @type
     match val.get("@type") {
         Some(Value::String(s)) => {
