@@ -177,7 +177,14 @@ pub async fn analyze(
                     );
                     match b.new_page(page_url.as_str()).await {
                         Ok(page) => {
-                            if let Ok(content) = page.content().await {
+                            let content_result = page.content().await;
+                            // Close the browser tab to prevent memory leaks —
+                            // chromiumoxide::Page has no Drop impl, so tabs
+                            // persist in the browser process unless explicitly closed.
+                            if let Err(e) = page.close().await {
+                                tracing::warn!("Failed to close JS page for {}: {}", page_url, e);
+                            }
+                            if let Ok(content) = content_result {
                                 html_doc = Html::parse_document(&content);
                             }
                         }
@@ -213,6 +220,12 @@ pub async fn analyze(
                     Ok(vp) => {
                         let vitals_results = analyze_vitals(&vp).await;
                         results.extend(vitals_results);
+                        // Close the browser tab to prevent memory leaks —
+                        // chromiumoxide::Page has no Drop impl, so tabs
+                        // persist in the browser process unless explicitly closed.
+                        if let Err(e) = vp.close().await {
+                            tracing::warn!("Failed to close vitals page for {}: {}", page_url, e);
+                        }
                     }
                     Err(e) => {
                         tracing::warn!("Vitals measurement failed for {}: {}", page_url, e);
