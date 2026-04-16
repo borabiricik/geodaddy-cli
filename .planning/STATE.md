@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 08-01-PLAN.md (Wave 0 scaffold)
-last_updated: "2026-04-16T18:16:55.286Z"
+stopped_at: Completed 08-02-PLAN.md (Wave 1 core implementation)
+last_updated: "2026-04-16T18:38:19.054Z"
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 21
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-23)
 ## Current Position
 
 Phase: 08 (Competitor comparison) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Plan: 2 of 3
 | Phase 07 P02 | 3 | 2 tasks | 4 files |
 | Phase 07 P04 | 1 | 2 tasks | 1 files |
 | Phase 08 P01 | 5 | 3 tasks | 4 files |
+| Phase 08-competitor-comparison P02 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,9 @@ Recent decisions affecting current work:
 - [Phase 08]: Phase 8 schema_version stays '1' — CompareReport shape (sites[]/winners/check_diff/errors) self-discriminates from Report (pages[]/categories/score); no consumer version bump needed
 - [Phase 08]: TIE_EPSILON = 0.1 absolute tolerance for compare winner detection — 10× f64::EPSILON, 25× smaller than realistic 2.5pt scoring delta; no float-cmp/approx dependency needed
 - [Phase 08]: Cli restructure uses Option<String> top-level positional + Option<Commands> subcommand — canonical clap-derive pattern for backward-compat CLI evolution; existing geodaddy <URL> invocation preserved unchanged
+- [Phase 08-competitor-comparison]: Wave 1 run_compare_flow promotes top-level CLI flags to clap global=true so --fail-under/--max-pages/--beauty work both before and after 'compare' subcommand (Rule 3 auto-fix; unblocks 3 integration tests without rewriting invocations)
+- [Phase 08-competitor-comparison]: Wave 1 --beauty emits keyword placeholder (Competitor Comparison/Overall Score/Winners + JSON) — test_compare_beauty_prints_table green in Wave 1; Wave 2 replaces with real colored table with no test churn
+- [Phase 08-competitor-comparison]: Exit-code policy priority: first URL in errors[] → 2, else sites[0].score < --fail-under → 1, else 0 (competitor failures informational, per CONTEXT)
 
 ### Roadmap Evolution
 
@@ -129,6 +133,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-16T18:16:55.283Z
-Stopped at: Completed 08-01-PLAN.md (Wave 0 scaffold)
+Last session: 2026-04-16T18:25:26.537Z
+Stopped at: Completed 08-02-PLAN.md (Wave 1 core implementation)
 Resume file: None
