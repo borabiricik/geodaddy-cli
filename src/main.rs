@@ -1,25 +1,26 @@
 use anyhow::Result;
 use chromiumoxide::{Browser, BrowserConfig};
-use clap::Parser;
+use clap::{CommandFactory, Parser, Subcommand};
 use futures::StreamExt;
 use std::time::Duration;
 
-use geodaddy::{AnalysisConfig, analyze};
 use geodaddy::beauty::print_beauty_report;
+use geodaddy::{AnalysisConfig, analyze};
 
 #[derive(Parser)]
 #[command(name = "geodaddy")]
 #[command(about = "GEO analysis tool — surface actionable AI search optimization issues")]
 #[command(version)]
 struct Cli {
-    /// URL to analyze (supports http://localhost and http://127.0.0.1)
-    url: String,
+    /// URL to analyze (omit when using a subcommand like `compare`).
+    url: Option<String>,
 
     /// Exit with code 1 if overall score is below this threshold (0-100).
+    /// In `compare` mode, applies to the FIRST URL only.
     #[arg(long, value_name = "SCORE")]
     fail_under: Option<f64>,
 
-    /// Enable crawling and stop after N pages. Without this flag, only the given URL is analyzed.
+    /// Enable crawling and stop after N pages. In `compare` mode, applied PER TARGET.
     #[arg(long, value_name = "N")]
     max_pages: Option<usize>,
 
@@ -36,6 +37,20 @@ struct Cli {
     /// Output a colored, human-readable report instead of JSON.
     #[arg(long)]
     beauty: bool,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Compare 2+ URLs side-by-side with per-category diff and winner detection.
+    /// Recommended maximum: ~10 URLs for readable --beauty output.
+    Compare {
+        /// URLs to compare (first URL treated as your site; rest as competitors).
+        #[arg(num_args = 2..)]
+        urls: Vec<String>,
+    },
 }
 
 #[tokio::main]
@@ -51,11 +66,33 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Dispatch: subcommand > positional URL > help+exit(2)
+    match (&cli.command, &cli.url) {
+        (Some(Commands::Compare { urls: _ }), _) => {
+            // Wave 0 stub: full compare flow lands in Wave 1 (08-02-PLAN)
+            eprintln!("compare subcommand not yet implemented (Wave 0 stub)");
+            std::process::exit(2);
+        }
+        (None, Some(url)) => {
+            run_analyze_flow(&cli, url).await?;
+        }
+        (None, None) => {
+            Cli::command().print_help().ok();
+            eprintln!();
+            std::process::exit(2);
+        }
+    }
+
+    Ok(())
+}
+
+/// Single-URL analyze flow — extracted from main() to keep the subcommand
+/// dispatch readable. Wave 1's `compare` flow will parallel this with a loop
+/// wrapper around `compare_sites()`.
+async fn run_analyze_flow(cli: &Cli, url: &str) -> Result<()> {
     // Build reqwest HTTP client with sensible defaults
     let client = reqwest::Client::builder()
-        .user_agent(concat!(
-            env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")
-        ))
+        .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .build()?;
@@ -67,10 +104,8 @@ async fn main() -> Result<()> {
     };
 
     // Optionally launch headless browser (only when --enable-js)
-    let js_data_dir = std::env::temp_dir().join(format!(
-        "geodaddy-js-{}",
-        std::process::id()
-    ));
+    let js_data_dir =
+        std::env::temp_dir().join(format!("geodaddy-js-{}", std::process::id()));
     let browser: Option<Browser> = if cli.enable_js {
         let mut builder = BrowserConfig::builder();
         if let Ok(path) = std::env::var("CHROME_PATH") {
@@ -92,10 +127,8 @@ async fn main() -> Result<()> {
     };
 
     // Optionally launch dedicated vitals browser (independent from --enable-js)
-    let vitals_data_dir = std::env::temp_dir().join(format!(
-        "geodaddy-vitals-{}",
-        std::process::id()
-    ));
+    let vitals_data_dir =
+        std::env::temp_dir().join(format!("geodaddy-vitals-{}", std::process::id()));
     let vitals_browser: Option<Browser> = if cli.vitals {
         let mut builder = BrowserConfig::builder();
         if let Ok(path) = std::env::var("CHROME_PATH") {
@@ -115,7 +148,7 @@ async fn main() -> Result<()> {
     };
 
     let report = analyze(
-        &cli.url,
+        url,
         &config,
         &client,
         browser.as_ref(),
