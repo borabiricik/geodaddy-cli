@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Milestone complete
-stopped_at: Completed 07-04-PLAN.md
-last_updated: "2026-03-29T17:05:16.109Z"
+status: Ready to execute
+stopped_at: Completed 08-01-PLAN.md (Wave 0 scaffold)
+last_updated: "2026-04-16T18:16:55.286Z"
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 7
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 21
+  completed_plans: 19
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-23)
 
 **Core value:** Surface actionable GEO issues with specific fix recommendations
-**Current focus:** Phase 07 — research-and-implement-missing-geo-metrics-llms-txt-ai-crawler-directives-citation-signals-entity-coverage-conversational-query-optimization
+**Current focus:** Phase 08 — Competitor comparison
 
 ## Current Position
 
-Phase: 07
-Plan: Not started
+Phase: 08 (Competitor comparison) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Plan: Not started
 | Phase 07 P03 | 2 | 2 tasks | 2 files |
 | Phase 07 P02 | 3 | 2 tasks | 4 files |
 | Phase 07 P04 | 1 | 2 tasks | 1 files |
+| Phase 08 P01 | 5 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -98,12 +99,16 @@ Recent decisions affecting current work:
 - [Phase 07]: Proper noun regex uses mid-sentence pattern to avoid sentence-start false positives
 - [Phase 07]: llms.txt fetched once before page loop (site-wide resource like robots.txt)
 - [Phase 07]: HTTP headers cloned before .text() consumes response body for directive/freshness checks
+- [Phase 08]: Phase 8 schema_version stays '1' — CompareReport shape (sites[]/winners/check_diff/errors) self-discriminates from Report (pages[]/categories/score); no consumer version bump needed
+- [Phase 08]: TIE_EPSILON = 0.1 absolute tolerance for compare winner detection — 10× f64::EPSILON, 25× smaller than realistic 2.5pt scoring delta; no float-cmp/approx dependency needed
+- [Phase 08]: Cli restructure uses Option<String> top-level positional + Option<Commands> subcommand — canonical clap-derive pattern for backward-compat CLI evolution; existing geodaddy <URL> invocation preserved unchanged
 
 ### Roadmap Evolution
 
 - Phase 5 added: Core Web Vitals measurement (LCP, FCP, CLS, TTFB, TBT) via chromiumoxide headless browser
 - Phase 6 added: Add local MCP server for LLM-driven CLI interaction
 - Phase 7 added: Research and implement missing GEO metrics (llms.txt, AI crawler directives, citation signals, entity coverage, conversational query optimization)
+- Phase 8 added: Competitor comparison: analyze multiple URLs side-by-side with per-category diff and winner detection
 
 ### Pending Todos
 
@@ -124,6 +129,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T18:27:00Z
-Stopped at: Completed 260329-toh (quick task - release v0.4.0)
+Last session: 2026-04-16T18:16:55.283Z
+Stopped at: Completed 08-01-PLAN.md (Wave 0 scaffold)
 Resume file: None
