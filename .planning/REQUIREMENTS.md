@@ -63,6 +63,19 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **MCP-06**: geodaddy binary bundled via postinstall download from GitHub releases (D-03)
 - [ ] **MCP-07**: Published to npm, invokable via npx (D-09, D-10)
 
+### Competitor Comparison
+
+- [x] **COMP-01**: CLI has `compare` subcommand accepting ≥ 2 URLs: `geodaddy compare <url1> <url2> [url3...]`
+- [x] **COMP-02**: `compare` reuses `analyze()` per URL sequentially, sharing `reqwest::Client` and optional browsers
+- [x] **COMP-03**: Existing flags `--enable-js`, `--vitals`, `--max-pages`, `--beauty`, `--fail-under` work under the `compare` subcommand with semantics preserved (`--max-pages` per-target, `--fail-under` first-URL only)
+- [x] **COMP-04**: JSON output: stable `CompareReport` schema with `schema_version`, `compared_at`, `sites`, `winners`, `check_diff`, `errors`
+- [x] **COMP-05**: Per-category winner detection with 0.1-point tie epsilon (winner = None when tied or category absent)
+- [x] **COMP-06**: Per-check diff table: one row per unique check ID, one cell per site (status "pass"/"warn"/"fail" or null when absent)
+- [x] **COMP-07**: Beauty mode: side-by-side colored terminal table, variable column count (2-10 sites), uses existing `colored` crate (no new dependencies)
+- [x] **COMP-08**: `--fail-under` applies to first URL only in compare mode (CI pattern: "your site" vs competitors)
+- [x] **COMP-09**: Per-URL analysis failures do NOT abort the run; failed sites surface in `errors` array; overall exit code 2 only if the first URL fails
+- [x] **COMP-10**: Duplicate URL handling: dedupe via `normalize_url()` with warning logged to stderr
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -144,12 +157,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MCP-05 | Phase 6 | Planned |
 | MCP-06 | Phase 6 | Planned |
 | MCP-07 | Phase 6 | Planned |
+| COMP-01 | Phase 8 | Planned |
+| COMP-02 | Phase 8 | Planned |
+| COMP-03 | Phase 8 | Planned |
+| COMP-04 | Phase 8 | Planned |
+| COMP-05 | Phase 8 | Planned |
+| COMP-06 | Phase 8 | Planned |
+| COMP-07 | Phase 8 | Planned |
+| COMP-08 | Phase 8 | Planned |
+| COMP-09 | Phase 8 | Planned |
+| COMP-10 | Phase 8 | Planned |
 
 **Coverage:**
-- v1 requirements: 35 total
-- Mapped to phases: 35
+- v1 requirements: 45 total
+- Mapped to phases: 45
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-23*
-*Last updated: 2026-03-25 after Phase 6 planning*
+*Last updated: 2026-04-16 after Phase 8 planning*

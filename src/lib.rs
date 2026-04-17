@@ -2,6 +2,7 @@ pub mod scoring;
 pub mod analyzers;
 pub mod crawling;
 pub mod beauty;
+pub mod compare;
 
 use anyhow::Result;
 use chromiumoxide::Browser;
@@ -46,7 +47,7 @@ pub struct AnalysisConfig {
 }
 
 /// Top-level report containing aggregate scores and per-page results.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Report {
     pub schema_version: &'static str,
     pub url: String,
@@ -57,7 +58,7 @@ pub struct Report {
 }
 
 /// Per-page analysis result.
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct PageResult {
     pub url: String,
     pub robots_blocked: bool,

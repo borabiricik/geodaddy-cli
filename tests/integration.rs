@@ -545,3 +545,300 @@ fn test_non_html_urls_not_in_pages() {
         );
     }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Phase 8 — Competitor comparison integration tests (Wave 0 stubs, red).
+//
+// These tests exercise the `compare` subcommand. Wave 0 lands only the stub
+// that prints "not yet implemented" + exits 2 — so every test below FAILS in
+// Wave 0 and passes in Wave 1 once compare_sites is implemented.
+// ════════════════════════════════════════════════════════════════════════════
+
+fn mock_site(server: &mut Server) {
+    let sitemap = sitemap_body(&server.url());
+    let _m_robots = server
+        .mock("GET", "/robots.txt")
+        .with_status(200)
+        .with_body(robots_txt())
+        .create();
+    let _m_sitemap = server
+        .mock("GET", "/sitemap.xml")
+        .with_status(200)
+        .with_body(sitemap)
+        .create();
+    let _m_root = server
+        .mock("GET", "/")
+        .with_status(200)
+        .with_header("content-type", "text/html")
+        .with_body(minimal_html())
+        .create();
+    // Leak mocks for test lifetime
+    std::mem::forget(_m_robots);
+    std::mem::forget(_m_sitemap);
+    std::mem::forget(_m_root);
+}
+
+#[test]
+fn test_compare_requires_two_urls() {
+    // clap MUST reject `geodaddy compare <single-url>` because num_args = 2..
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg("https://only-one.example.com")
+        .output()
+        .unwrap();
+    assert_ne!(output.status.code(), Some(0), "single-URL compare must NOT succeed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("required")
+            || stderr.contains("usage")
+            || stderr.contains("2 values")
+            || stderr.contains("minimum"),
+        "expected clap error about needing 2 URLs, got stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_compare_shares_http_client() {
+    // Success criterion: both mocks hit (proxied by successful CompareReport.sites having 2 entries).
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("invalid JSON: {} — stdout: {}", e, stdout));
+    assert_eq!(json["sites"].as_array().map(|v| v.len()), Some(2));
+}
+
+#[test]
+fn test_compare_max_pages_per_target() {
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg("--max-pages")
+        .arg("1")
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("JSON: {} / {}", e, stdout));
+    // Each site gets its own --max-pages=1 budget.
+    assert_eq!(json["sites"][0]["pages"].as_array().map(|v| v.len()), Some(1));
+    assert_eq!(json["sites"][1]["pages"].as_array().map(|v| v.len()), Some(1));
+}
+
+#[test]
+fn test_compare_beauty_prints_table() {
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg("--beauty")
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Competitor Comparison"), "beauty mode header missing");
+    assert!(stdout.contains("Overall Score"), "overall score row missing");
+    assert!(stdout.contains("Winners"), "winners section missing");
+}
+
+#[test]
+fn test_compare_json_schema_stable() {
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: Value = serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("{}", e));
+    assert_eq!(json["schema_version"], "1");
+    assert!(json["compared_at"].is_string());
+    assert!(json["sites"].is_array());
+    assert!(json["winners"].is_object());
+    assert!(json["check_diff"].is_array());
+    assert!(json["errors"].is_array());
+}
+
+#[test]
+fn test_compare_fail_under_first_url() {
+    // First URL's score is low → threshold 99 forces exit 1.
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg("--fail-under")
+        .arg("99.0")
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "first URL below threshold → exit 1");
+}
+
+#[test]
+fn test_compare_competitor_low_score_ignored() {
+    // First URL = high-scoring site; competitor = bare HTML (low score). Threshold 50 → first passes.
+    let mut a = Server::new();
+    mock_site(&mut a); // a is first; threshold 50 OK
+    let mut b = Server::new();
+    let _mb_robots = b
+        .mock("GET", "/robots.txt")
+        .with_status(200)
+        .with_body(robots_txt())
+        .create();
+    let _mb_sitemap = b
+        .mock("GET", "/sitemap.xml")
+        .with_status(200)
+        .with_body(sitemap_body(&b.url()))
+        .create();
+    let _mb_root = b
+        .mock("GET", "/")
+        .with_status(200)
+        .with_header("content-type", "text/html")
+        .with_body("<html><body></body></html>")
+        .create();
+    std::mem::forget(_mb_robots);
+    std::mem::forget(_mb_sitemap);
+    std::mem::forget(_mb_root);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg("--fail-under")
+        .arg("50.0")
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    // First URL is above 50, competitor below → must NOT exit 1.
+    assert_ne!(output.status.code(), Some(1), "competitor failure must not trigger --fail-under");
+}
+
+#[test]
+fn test_compare_continues_on_per_url_error() {
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    // Intentionally use one unreachable URL in the middle.
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg(a.url())
+        .arg("http://127.0.0.1:1")
+        .arg(b.url())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: Value = serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("{}", e));
+    assert_eq!(json["sites"].as_array().map(|v| v.len()), Some(2), "a and b succeed");
+    assert_eq!(json["errors"].as_array().map(|v| v.len()), Some(1), "middle URL surfaces as error");
+}
+
+#[test]
+fn test_compare_first_url_failure_exit_2() {
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg("http://127.0.0.1:1")
+        .arg(b.url())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "first URL fails → exit 2");
+}
+
+#[test]
+fn test_compare_dedupes_duplicate_urls() {
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg(a.url())
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let json: Value = serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("{}", e));
+    assert_eq!(json["sites"].as_array().map(|v| v.len()), Some(2), "deduped to 2 unique");
+    assert!(stderr.to_lowercase().contains("duplicate"), "stderr must warn about duplicate URL");
+}
+
+#[test]
+fn test_compare_winners_populated() {
+    // Covers COMP-05 end-to-end: winners object present with expected keys.
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: Value = serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("{}", e));
+    for key in &["overall", "technical", "content", "geo", "performance"] {
+        assert!(json["winners"].get(*key).is_some(), "winners.{} must exist", key);
+    }
+}
+
+#[test]
+fn test_compare_check_diff_populated() {
+    // Covers COMP-06 end-to-end: check_diff has entries shaped as { check, results: [{url, status}] }.
+    let mut a = Server::new();
+    mock_site(&mut a);
+    let mut b = Server::new();
+    mock_site(&mut b);
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("compare")
+        .arg(a.url())
+        .arg(b.url())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: Value = serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("{}", e));
+    let diff = json["check_diff"].as_array().expect("check_diff array");
+    assert!(!diff.is_empty(), "check_diff must not be empty");
+    let first = &diff[0];
+    assert!(first["check"].is_string());
+    assert!(first["results"].is_array());
+    assert_eq!(first["results"].as_array().unwrap().len(), 2, "one entry per site");
+}

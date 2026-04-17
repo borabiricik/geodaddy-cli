@@ -130,3 +130,13 @@ Plans:
 - [x] 07-02-PLAN.md — geo_citations.rs (4 citation checks + FAQ quality), geo_entities.rs (4 entity checks)
 - [x] 07-03-PLAN.md — geo_query.rs (4 query optimization checks), geo_freshness.rs (freshness + HowTo)
 - [x] 07-04-PLAN.md — lib.rs wiring: llms.txt fetch, HTTP header capture, all new analyzer calls
+
+### Phase 8: Competitor comparison: analyze multiple URLs side-by-side with per-category diff and winner detection
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 7
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 8 to break down)
