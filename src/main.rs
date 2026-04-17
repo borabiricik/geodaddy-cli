@@ -5,6 +5,7 @@ use futures::StreamExt;
 use std::time::Duration;
 
 use geodaddy::beauty::print_beauty_report;
+use geodaddy::beauty::print_beauty_compare_report;
 use geodaddy::compare;
 use geodaddy::{AnalysisConfig, analyze};
 
@@ -182,7 +183,8 @@ async fn run_analyze_flow(cli: &Cli, url: &str) -> Result<()> {
 
 /// Multi-URL compare flow — sequentially analyzes each URL sharing a single
 /// reqwest::Client + optional headless browsers, renders the result as JSON
-/// (or a Wave 1 placeholder table when --beauty is passed), and enforces the
+/// (or a side-by-side colored table when --beauty is passed via
+/// beauty::print_beauty_compare_report), and enforces the
 /// first-URL-centric exit-code policy from 08-CONTEXT.md:
 ///   exit 2 if the first URL failed to analyze
 ///   exit 1 if the first URL's score is below --fail-under
@@ -261,21 +263,7 @@ async fn run_compare_flow(cli: &Cli, urls: &[String]) -> Result<()> {
 
     // Render output.
     if cli.beauty {
-        // Wave 1 placeholder — Wave 2 replaces this with print_beauty_compare_report(&report).
-        println!("geodaddy — Competitor Comparison Report");
-        println!("Overall Score (per site in JSON below)");
-        println!("Winners:");
-        for (cat, url) in [
-            ("overall", &report.winners.overall),
-            ("technical", &report.winners.technical),
-            ("content", &report.winners.content),
-            ("geo", &report.winners.geo),
-            ("performance", &report.winners.performance),
-        ] {
-            println!("  {}: {}", cat, url.as_deref().unwrap_or("TIE / N/A"));
-        }
-        println!();
-        println!("{}", serde_json::to_string_pretty(&report)?);
+        print_beauty_compare_report(&report);
     } else {
         println!("{}", serde_json::to_string_pretty(&report)?);
     }
