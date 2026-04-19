@@ -19,6 +19,7 @@ Open-source GEO (Generative Engine Optimization) analysis tool. Analyzes website
   - [Flags & Options](#flags--options)
   - [Crawling Modes](#crawling-modes)
   - [Output Modes](#output-modes)
+- [Compare (Competitor Analysis)](#compare-competitor-analysis)
 - [Scoring](#scoring)
   - [Categories](#categories)
   - [How Scores Are Calculated](#how-scores-are-calculated)
@@ -92,6 +93,12 @@ Crawl an entire site (up to 50 pages):
 
 ```bash
 geodaddy https://example.com --max-pages 50 --beauty
+```
+
+Compare your site against competitors side-by-side:
+
+```bash
+geodaddy compare https://mysite.com https://rival.com --beauty
 ```
 
 ---
@@ -174,6 +181,129 @@ Technical: 80.0  Content: 70.0  GEO: 65.0  Performance: N/A
   [FAIL]  tech-heading-h1     No H1 heading found
       -> Add exactly one <h1> tag per page with your primary keyword
 ```
+
+---
+
+## Compare (Competitor Analysis)
+
+Analyze **2 or more URLs side-by-side** to benchmark your site against competitors (or audit multiple sites you own). Runs the full GEO analysis on each target and produces a combined report with per-category winners and a per-check diff.
+
+```bash
+geodaddy compare <url1> <url2> [url3...]
+```
+
+### Examples
+
+```bash
+# Minimum: 2 URLs. First URL is treated as "your site"; the rest are competitors.
+geodaddy compare https://mysite.com https://competitor.com
+
+# Human-readable side-by-side table
+geodaddy compare --beauty https://mysite.com https://rival-a.com https://rival-b.com
+
+# Per-target crawl budget (3 pages each) + JS rendering
+geodaddy compare --max-pages 3 --enable-js \
+  https://mysite.com https://rival.com
+
+# CI gate: fail (exit 1) if YOUR site falls below 80. Competitor scores are
+# informational only — they do not affect the exit code.
+geodaddy compare --fail-under 80 \
+  https://mysite.com https://rival-a.com https://rival-b.com
+```
+
+### What You Get
+
+- **Per-site scores** — overall + Technical / Content / GEO / Performance.
+- **Winners** — the URL that scored highest in each category. Ties (scores within 0.1) resolve to `null`.
+- **Per-check diff** — one row per check ID with each site's status (`pass` / `warn` / `fail` / `null`), so you can see exactly which site wins which check.
+- **Errors** — any target that failed to analyze (unreachable, DNS error, timeout) is recorded in `errors[]` but does **not** abort the run.
+
+### Flag Semantics in Compare Mode
+
+All existing flags work under `compare`, with two first-URL-centric semantics:
+
+| Flag | Behavior |
+|------|----------|
+| `--max-pages <N>` | Applied **per target** (each site gets its own crawl budget). |
+| `--enable-js` / `--vitals` | Applied to **all targets**, shared headless browser instance. |
+| `--beauty` | Renders a side-by-side colored terminal table. |
+| `--fail-under <SCORE>` | Applies to the **first URL only** (your site). CI pattern: "did my site drop below the bar?" Competitor scores never affect exit code. |
+
+### Exit Codes (Compare Mode)
+
+| Code | Meaning |
+|------|---------|
+| `0` | All OK, or `--fail-under` threshold met on the first URL. |
+| `1` | First URL's aggregate score fell below `--fail-under`. |
+| `2` | First URL failed to analyze. Competitor failures do NOT produce exit 2. |
+
+### Limits & Notes
+
+- Recommend up to **~10 URLs** for readable `--beauty` output (narrow terminals fall back to a vertical per-site report).
+- URLs are **analyzed sequentially** to stay polite to target sites and to share one headless browser instance. Total time ≈ sum of per-site analysis times.
+- Duplicate URLs are deduplicated via the same URL-normalization used for crawling (e.g. `https://site.com/` and `https://site.com` are treated as the same).
+
+### Example Beauty Output
+
+```
+geodaddy — Competitor Comparison Report
+Compared: 2026-04-19T12:00:00Z
+──────────────────────────────────────────────────────────────
+
+                  mysite.com    rival-a.com   rival-b.com
+Overall Score     87.3          72.1          45.8
+Technical         92.0          88.5          60.0
+Content           85.0          70.0          50.0
+GEO               85.0          58.0          30.0
+Performance       87.2          71.8          N/A
+
+Winners
+  Overall:      mysite.com
+  Technical:    mysite.com
+  Content:      mysite.com
+  GEO:          mysite.com
+  Performance:  mysite.com
+
+Per-check Diff
+  tech-meta-title        ✓  ✗  ⚠
+  tech-https             ✓  ✓  ✗
+  geo-llms-txt           ✓  ✗  ✗
+  ...
+```
+
+### JSON Output
+
+Compare returns a stable top-level schema distinct from the single-URL report:
+
+```json
+{
+  "schema_version": "1",
+  "compared_at": "2026-04-19T12:00:00Z",
+  "sites": [ /* full per-site Report, same shape as single-URL output */ ],
+  "winners": {
+    "overall": "https://mysite.com",
+    "technical": "https://mysite.com",
+    "content": "https://mysite.com",
+    "geo": null,
+    "performance": null
+  },
+  "check_diff": [
+    {
+      "check": "tech-meta-title",
+      "results": [
+        { "url": "https://mysite.com",  "status": "pass" },
+        { "url": "https://rival-a.com", "status": "fail" },
+        { "url": "https://rival-b.com", "status": "warn" }
+      ]
+    }
+  ],
+  "errors": [
+    { "url": "https://unreachable.example", "message": "DNS error" }
+  ]
+}
+```
+
+The shape discriminates itself from the single-URL schema by the presence of `sites[]` (vs `pages[]`), so tooling can branch without version sniffing.
 
 ---
 
