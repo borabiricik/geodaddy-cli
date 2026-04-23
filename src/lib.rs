@@ -3,7 +3,6 @@ pub mod analyzers;
 pub mod crawling;
 pub mod beauty;
 pub mod compare;
-pub mod see;
 
 use anyhow::Result;
 use chromiumoxide::Browser;
