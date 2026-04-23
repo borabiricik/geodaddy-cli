@@ -29,7 +29,40 @@ fn minimal_html() -> &'static str {
 /// robots.txt that allows all crawlers and sets Crawl-delay: 0
 /// so tests don't wait 1 second between pages.
 fn robots_txt() -> &'static str {
-    "User-agent: *\nAllow: /\nCrawl-delay: 0\n"
+    "User-agent: *\nAllow: /\nCrawl-delay: 0\nContent-Signal: search=yes, ai-input=yes, ai-train=no\n"
+}
+
+/// Mock the site-wide agent-category well-known endpoints so that
+/// mock_site passes the most impactful agent-readiness checks. Without
+/// these, the agent category scores near zero and drags the overall
+/// average below the thresholds asserted by compare tests.
+fn mock_agent_endpoints(server: &mut Server) {
+    let mocks = [
+        ("/.well-known/mcp/server-card.json", r#"{"mcpServers":[]}"#),
+        ("/.well-known/agent-card.json", r#"{"name":"mock","capabilities":["payment"]}"#),
+        ("/.well-known/agent-skills/index.json", r#"{"skills":[]}"#),
+        (
+            "/.well-known/api-catalog",
+            r#"{"linkset":[{"anchor":"https://example.com","service":[]}]}"#,
+        ),
+        (
+            "/.well-known/oauth-authorization-server",
+            r#"{"issuer":"https://example.com","authorization_endpoint":"https://example.com/auth"}"#,
+        ),
+        (
+            "/.well-known/oauth-protected-resource",
+            r#"{"resource":"https://example.com"}"#,
+        ),
+    ];
+    for (path, body) in mocks {
+        let m = server
+            .mock("GET", path)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create();
+        std::mem::forget(m);
+    }
 }
 
 // ── Test 1: JSON output has score, categories, and pages ──────────────────────
@@ -570,12 +603,14 @@ fn mock_site(server: &mut Server) {
         .mock("GET", "/")
         .with_status(200)
         .with_header("content-type", "text/html")
+        .with_header("link", "</sitemap.xml>; rel=\"sitemap\"")
         .with_body(minimal_html())
         .create();
     // Leak mocks for test lifetime
     std::mem::forget(_m_robots);
     std::mem::forget(_m_sitemap);
     std::mem::forget(_m_root);
+    mock_agent_endpoints(server);
 }
 
 #[test]
