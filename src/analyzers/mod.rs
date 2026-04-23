@@ -8,3 +8,4 @@ pub mod geo_llms;
 pub mod geo_directives;
 pub mod geo_query;
 pub mod geo_freshness;
+pub mod agent;

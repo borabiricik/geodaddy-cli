@@ -3,6 +3,7 @@ pub mod analyzers;
 pub mod crawling;
 pub mod beauty;
 pub mod compare;
+pub mod see;
 
 use anyhow::Result;
 use chromiumoxide::Browser;
@@ -32,6 +33,13 @@ use crate::analyzers::geo_citations::{analyze_citations, analyze_faq_quality};
 use crate::analyzers::geo_entities::analyze_entities;
 use crate::analyzers::geo_query::analyze_query_optimization;
 use crate::analyzers::geo_freshness::{analyze_freshness, analyze_howto_schema};
+use crate::analyzers::agent::{
+    AgentResources, fetch_agent_resources, analyze_link_headers, analyze_markdown_negotiation,
+    analyze_content_signals, analyze_web_bot_auth, analyze_mcp_server_card, analyze_a2a_card,
+    analyze_agent_skills, analyze_webmcp, analyze_api_catalog, analyze_oauth_discovery,
+    analyze_oauth_protected_resource, analyze_x402, analyze_mpp, analyze_ucp, analyze_acp,
+    analyze_ap2,
+};
 use crate::analyzers::performance::analyze_vitals;
 use crate::crawling::{
     fetch_sitemap_urls, collect_links_bfs, normalize_url, is_html_url,
@@ -102,6 +110,10 @@ pub async fn analyze(
 
     // llms.txt fetched ONCE at crawl start (site-wide resource, like robots.txt)
     let llms_txt_body = fetch_llms_txt(client, &base_url).await;
+
+    // Agent-readiness site-wide resources (MCP/A2A/OAuth/API catalogue/…) fetched
+    // ONCE. Individual per-page checks reuse this struct.
+    let agent_resources: AgentResources = fetch_agent_resources(client, &base_url).await;
 
     // Determine URL list — crawling is opt-in via max_pages
     let (urls, is_sitemap_driven): (Vec<String>, bool) = if config.max_pages.is_none() {
@@ -239,6 +251,24 @@ pub async fn analyze(
         results.push(analyze_freshness(&html_doc, &response_headers));
         results.push(analyze_howto_schema(&html_doc));
 
+        // Agent-readiness checks (Cloudflare "Is it Agent Ready?" coverage)
+        results.push(analyze_link_headers(&response_headers));
+        results.push(analyze_markdown_negotiation(&agent_resources));
+        results.push(analyze_content_signals(&robots_body));
+        results.push(analyze_web_bot_auth(&agent_resources));
+        results.push(analyze_mcp_server_card(&agent_resources));
+        results.push(analyze_a2a_card(&agent_resources));
+        results.push(analyze_agent_skills(&agent_resources));
+        results.push(analyze_webmcp(&html_doc));
+        results.push(analyze_api_catalog(&agent_resources));
+        results.push(analyze_oauth_discovery(&agent_resources));
+        results.push(analyze_oauth_protected_resource(&agent_resources));
+        results.push(analyze_x402(client, &base_url, &html_doc).await);
+        results.push(analyze_mpp(&agent_resources));
+        results.push(analyze_ucp(&agent_resources));
+        results.push(analyze_acp(&agent_resources));
+        results.push(analyze_ap2(&agent_resources));
+
         // Core Web Vitals measurement — only when vitals is active
         if config.vitals {
             if let Some(vb) = vitals_browser {
@@ -286,6 +316,7 @@ pub async fn analyze(
                     technical: p.categories.technical,
                     content: p.categories.content,
                     geo: p.categories.geo,
+                    agent: p.categories.agent,
                     performance: p.categories.performance,
                 },
             )

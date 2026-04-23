@@ -37,10 +37,11 @@ pub fn print_beauty_report(report: &Report) {
         format!("{:.1}/100", report.score).color(color).bold()
     );
     println!(
-        "Technical: {:.1}  Content: {:.1}  GEO: {:.1}  Performance: {}",
+        "Technical: {:.1}  Content: {:.1}  GEO: {:.1}  Agent: {:.1}  Performance: {}",
         report.categories.technical,
         report.categories.content,
         report.categories.geo,
+        report.categories.agent,
         fmt_perf(report.categories.performance),
     );
     println!();
@@ -66,10 +67,11 @@ fn print_page(n: usize, total: usize, page: &PageResult) {
     }
 
     println!(
-        "Technical: {:.1}  Content: {:.1}  GEO: {:.1}  Performance: {}",
+        "Technical: {:.1}  Content: {:.1}  GEO: {:.1}  Agent: {:.1}  Performance: {}",
         page.categories.technical,
         page.categories.content,
         page.categories.geo,
+        page.categories.agent,
         fmt_perf(page.categories.performance),
     );
     println!();
@@ -327,6 +329,7 @@ mod tests {
                 technical: score,
                 content: score,
                 geo: score,
+                agent: score,
                 performance: Some(score),
             },
             pages: vec![PageResult {
@@ -337,6 +340,7 @@ mod tests {
                     technical: score,
                     content: score,
                     geo: score,
+                    agent: score,
                     performance: Some(score),
                 },
                 results: vec![AnalysisResult {
@@ -358,6 +362,7 @@ mod tests {
             technical: sites.first().map(|s| s.url.clone()),
             content: sites.first().map(|s| s.url.clone()),
             geo: sites.first().map(|s| s.url.clone()),
+            agent: sites.first().map(|s| s.url.clone()),
             performance: sites.first().map(|s| s.url.clone()),
         };
         let check_diff = vec![CheckDiff {

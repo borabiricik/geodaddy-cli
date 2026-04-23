@@ -21,6 +21,7 @@ pub struct CategoryScores {
     pub technical: f64,
     pub content: f64,
     pub geo: f64,
+    pub agent: f64,
     pub performance: Option<f64>, // null in JSON when --vitals not passed (D-05)
 }
 
@@ -47,6 +48,13 @@ pub(crate) fn severity_points(check: &str) -> u32 {
         | "geo-query-snippet" | "geo-faq-quality" => 2,
         "geo-listicle" | "geo-schema-stacking" => 5,
         _ if check.starts_with("geo-ai-bot-") => 10,
+        "agent-link-headers"
+        | "agent-markdown-negotiation"
+        | "agent-mcp-server-card" => 5,
+        "agent-content-signals" | "agent-web-bot-auth" | "agent-a2a-card"
+        | "agent-skills" | "agent-webmcp" | "agent-api-catalog"
+        | "agent-oauth-discovery" | "agent-oauth-protected-resource"
+        | "agent-x402" | "agent-mpp" | "agent-ucp" | "agent-acp" | "agent-ap2" => 2,
         "perf-lcp" => 10,
         "perf-fcp" | "perf-cls" | "perf-ttfb" | "perf-tbt" => 5,
         _ => 5,
@@ -60,6 +68,8 @@ pub fn calculate_score(results: &[AnalysisResult]) -> (f64, CategoryScores) {
     let mut cont_max: u32 = 0;
     let mut geo_earned: u32 = 0;
     let mut geo_max: u32 = 0;
+    let mut agent_earned: u32 = 0;
+    let mut agent_max: u32 = 0;
     let mut perf_earned: u32 = 0;
     let mut perf_max: u32 = 0;
 
@@ -77,6 +87,9 @@ pub fn calculate_score(results: &[AnalysisResult]) -> (f64, CategoryScores) {
         } else if result.check.starts_with("cont-") {
             cont_earned += earned;
             cont_max += pts;
+        } else if result.check.starts_with("agent-") {
+            agent_earned += earned;
+            agent_max += pts;
         } else if result.check.starts_with("geo-") {
             geo_earned += earned;
             geo_max += pts;
@@ -104,9 +117,16 @@ pub fn calculate_score(results: &[AnalysisResult]) -> (f64, CategoryScores) {
         (geo_earned as f64 / geo_max as f64) * 100.0
     };
 
+    let agent_score = if agent_max == 0 {
+        100.0_f64
+    } else {
+        (agent_earned as f64 / agent_max as f64) * 100.0
+    };
+
     let tech_score = tech_score.clamp(0.0, 100.0);
     let cont_score = cont_score.clamp(0.0, 100.0);
     let geo_score = geo_score.clamp(0.0, 100.0);
+    let agent_score = agent_score.clamp(0.0, 100.0);
 
     let perf_score: Option<f64> = if perf_max == 0 {
         None
@@ -115,11 +135,20 @@ pub fn calculate_score(results: &[AnalysisResult]) -> (f64, CategoryScores) {
     };
 
     let overall = match perf_score {
-        Some(p) => ((tech_score + cont_score + geo_score + p) / 4.0).clamp(0.0, 100.0),
-        None => ((tech_score + cont_score + geo_score) / 3.0).clamp(0.0, 100.0),
+        Some(p) => ((tech_score + cont_score + geo_score + agent_score + p) / 5.0).clamp(0.0, 100.0),
+        None => ((tech_score + cont_score + geo_score + agent_score) / 4.0).clamp(0.0, 100.0),
     };
 
-    (overall, CategoryScores { technical: tech_score, content: cont_score, geo: geo_score, performance: perf_score })
+    (
+        overall,
+        CategoryScores {
+            technical: tech_score,
+            content: cont_score,
+            geo: geo_score,
+            agent: agent_score,
+            performance: perf_score,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -142,6 +171,7 @@ mod tests {
         assert_eq!(cats.technical, 100.0);
         assert_eq!(cats.content, 100.0);
         assert_eq!(cats.geo, 100.0);
+        assert_eq!(cats.agent, 100.0);
         assert_eq!(cats.performance, None);
     }
 
@@ -178,14 +208,15 @@ mod tests {
 
     #[test]
     fn test_overall_is_average() {
-        // technical = 0% (fail critical), content = 100% (pass critical), geo = 100% (no geo checks)
-        // overall = (0 + 100 + 100) / 3 = 66.67
+        // technical = 0% (fail critical), content = 100% (pass critical),
+        // geo = 100% (no geo checks), agent = 100% (no agent checks)
+        // overall = (0 + 100 + 100 + 100) / 4 = 75
         let results = vec![
             make_result("tech-meta-title", Status::Fail),
             make_result("cont-json-ld", Status::Pass),
         ];
         let (overall, _) = calculate_score(&results);
-        assert!((overall - 200.0 / 3.0).abs() < 0.01);
+        assert!((overall - 75.0).abs() < 0.01);
     }
 
     #[test]
@@ -212,8 +243,9 @@ mod tests {
 
     #[test]
     fn test_geo_mixed_with_tech_cont() {
-        // tech: fail critical (0%), cont: pass critical (100%), geo: fail listicle (0%)
-        // overall = (0 + 100 + 0) / 3 = 33.33
+        // tech: fail critical (0%), cont: pass critical (100%), geo: fail listicle (0%),
+        // agent: 100% (no agent checks)
+        // overall = (0 + 100 + 0 + 100) / 4 = 50
         let results = vec![
             make_result("tech-meta-title", Status::Fail),
             make_result("cont-json-ld", Status::Pass),
@@ -223,7 +255,8 @@ mod tests {
         assert_eq!(cats.technical, 0.0);
         assert_eq!(cats.content, 100.0);
         assert_eq!(cats.geo, 0.0);
-        assert!((overall - 100.0 / 3.0).abs() < 0.01);
+        assert_eq!(cats.agent, 100.0);
+        assert!((overall - 50.0).abs() < 0.01);
     }
 
     #[test]
@@ -283,22 +316,23 @@ mod tests {
     }
 
     #[test]
-    fn test_three_way_average_without_perf() {
-        // tech: fail critical (0%), cont: pass critical (100%), geo: 100% (no geo checks)
-        // overall = (0 + 100 + 100) / 3 = 66.67
+    fn test_four_way_average_without_perf() {
+        // tech: fail critical (0%), cont: pass critical (100%), geo: 100% (none), agent: 100% (none)
+        // overall = (0 + 100 + 100 + 100) / 4 = 75.0
         let results = vec![
             make_result("tech-meta-title", Status::Fail),
             make_result("cont-json-ld", Status::Pass),
         ];
         let (overall, cats) = calculate_score(&results);
         assert_eq!(cats.performance, None);
-        assert!((overall - 200.0 / 3.0).abs() < 0.01);
+        assert!((overall - 75.0).abs() < 0.01);
     }
 
     #[test]
-    fn test_four_way_average_with_perf() {
-        // tech: fail critical (0%), cont: pass critical (100%), geo: 100% (none), perf-lcp Pass (100%)
-        // overall = (0 + 100 + 100 + 100) / 4 = 75.0
+    fn test_five_way_average_with_perf() {
+        // tech: fail critical (0%), cont: pass critical (100%), geo: 100% (none),
+        // agent: 100% (none), perf-lcp Pass (100%)
+        // overall = (0 + 100 + 100 + 100 + 100) / 5 = 80.0
         let results = vec![
             make_result("tech-meta-title", Status::Fail),
             make_result("cont-json-ld", Status::Pass),
@@ -306,7 +340,29 @@ mod tests {
         ];
         let (overall, cats) = calculate_score(&results);
         assert_eq!(cats.performance, Some(100.0));
-        assert!((overall - 75.0).abs() < 0.01);
+        assert!((overall - 80.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_agent_category_routing() {
+        // agent-markdown-negotiation Fail should affect only agent score
+        let results = vec![make_result("agent-markdown-negotiation", Status::Fail)];
+        let (_, cats) = calculate_score(&results);
+        assert_eq!(cats.technical, 100.0);
+        assert_eq!(cats.content, 100.0);
+        assert_eq!(cats.geo, 100.0);
+        assert_eq!(cats.agent, 0.0);
+    }
+
+    #[test]
+    fn test_agent_severity_points() {
+        assert_eq!(severity_points("agent-link-headers"), 5);
+        assert_eq!(severity_points("agent-markdown-negotiation"), 5);
+        assert_eq!(severity_points("agent-mcp-server-card"), 5);
+        assert_eq!(severity_points("agent-content-signals"), 2);
+        assert_eq!(severity_points("agent-web-bot-auth"), 2);
+        assert_eq!(severity_points("agent-x402"), 2);
+        assert_eq!(severity_points("agent-ap2"), 2);
     }
 
     #[test]
@@ -316,6 +372,7 @@ mod tests {
         assert_eq!(cats.technical, 100.0);
         assert_eq!(cats.content, 100.0);
         assert_eq!(cats.geo, 100.0);
+        assert_eq!(cats.agent, 100.0);
         assert_eq!(cats.performance, Some(0.0));
     }
 }

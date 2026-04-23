@@ -207,6 +207,7 @@ pub fn aggregate_scores(page_scores: &[(f64, CategoryScores)]) -> (f64, Category
                 technical: 100.0,
                 content: 100.0,
                 geo: 100.0,
+                agent: 100.0,
                 performance: None,
             },
         );
@@ -216,6 +217,7 @@ pub fn aggregate_scores(page_scores: &[(f64, CategoryScores)]) -> (f64, Category
     let tech = page_scores.iter().map(|(_, c)| c.technical).sum::<f64>() / n;
     let cont = page_scores.iter().map(|(_, c)| c.content).sum::<f64>() / n;
     let geo = page_scores.iter().map(|(_, c)| c.geo).sum::<f64>() / n;
+    let agent = page_scores.iter().map(|(_, c)| c.agent).sum::<f64>() / n;
     let perf_scores: Vec<f64> = page_scores
         .iter()
         .filter_map(|(_, c)| c.performance)
@@ -231,6 +233,7 @@ pub fn aggregate_scores(page_scores: &[(f64, CategoryScores)]) -> (f64, Category
             technical: tech,
             content: cont,
             geo,
+            agent,
             performance,
         },
     )
@@ -417,6 +420,7 @@ mod tests {
                     technical: 80.0,
                     content: 80.0,
                     geo: 80.0,
+                    agent: 80.0,
                     performance: None,
                 },
             ),
@@ -426,6 +430,7 @@ mod tests {
                     technical: 60.0,
                     content: 60.0,
                     geo: 60.0,
+                    agent: 60.0,
                     performance: None,
                 },
             ),
@@ -441,14 +446,15 @@ mod tests {
         assert_eq!(cats.technical, 100.0);
         assert_eq!(cats.content, 100.0);
         assert_eq!(cats.geo, 100.0);
+        assert_eq!(cats.agent, 100.0);
         assert_eq!(cats.performance, None);
     }
 
     #[test]
     fn test_aggregate_score_performance_averages_some_values() {
         let page_scores = vec![
-            (80.0, CategoryScores { technical: 80.0, content: 80.0, geo: 80.0, performance: Some(80.0) }),
-            (60.0, CategoryScores { technical: 60.0, content: 60.0, geo: 60.0, performance: Some(60.0) }),
+            (80.0, CategoryScores { technical: 80.0, content: 80.0, geo: 80.0, agent: 80.0, performance: Some(80.0) }),
+            (60.0, CategoryScores { technical: 60.0, content: 60.0, geo: 60.0, agent: 60.0, performance: Some(60.0) }),
         ];
         let (_, cats) = aggregate_scores(&page_scores);
         assert_eq!(cats.performance, Some(70.0));
@@ -457,8 +463,8 @@ mod tests {
     #[test]
     fn test_aggregate_score_performance_none_when_all_none() {
         let page_scores = vec![
-            (80.0, CategoryScores { technical: 80.0, content: 80.0, geo: 80.0, performance: None }),
-            (60.0, CategoryScores { technical: 60.0, content: 60.0, geo: 60.0, performance: None }),
+            (80.0, CategoryScores { technical: 80.0, content: 80.0, geo: 80.0, agent: 80.0, performance: None }),
+            (60.0, CategoryScores { technical: 60.0, content: 60.0, geo: 60.0, agent: 60.0, performance: None }),
         ];
         let (_, cats) = aggregate_scores(&page_scores);
         assert_eq!(cats.performance, None);

@@ -56,6 +56,7 @@ pub struct Winners {
     pub technical: Option<String>,
     pub content: Option<String>,
     pub geo: Option<String>,
+    pub agent: Option<String>,
     pub performance: Option<String>,
 }
 
@@ -161,6 +162,7 @@ pub fn compute_winners(sites: &[Report]) -> Winners {
         technical: winner(sites, |r| Some(r.categories.technical)),
         content: winner(sites, |r| Some(r.categories.content)),
         geo: winner(sites, |r| Some(r.categories.geo)),
+        agent: winner(sites, |r| Some(r.categories.agent)),
         performance: winner(sites, |r| r.categories.performance),
     }
 }
@@ -263,25 +265,28 @@ mod tests {
         perf: Option<f64>,
         results: Vec<AnalysisResult>,
     ) -> Report {
+        let agent = 100.0;
         Report {
             schema_version: "1",
             url: url.to_string(),
             crawled_at: "2026-04-16T00:00:00Z".to_string(),
-            score: (tech + content + geo) / 3.0,
+            score: (tech + content + geo + agent) / 4.0,
             categories: CategoryScores {
                 technical: tech,
                 content,
                 geo,
+                agent,
                 performance: perf,
             },
             pages: vec![PageResult {
                 url: url.to_string(),
                 robots_blocked: false,
-                score: (tech + content + geo) / 3.0,
+                score: (tech + content + geo + agent) / 4.0,
                 categories: CategoryScores {
                     technical: tech,
                     content,
                     geo,
+                    agent,
                     performance: perf,
                 },
                 results,
@@ -412,6 +417,7 @@ mod tests {
                 technical: 100.0,
                 content: 100.0,
                 geo: 100.0,
+                agent: 100.0,
                 performance: None,
             },
             results: vec![
