@@ -3,6 +3,7 @@ pub mod analyzers;
 pub mod crawling;
 pub mod beauty;
 pub mod compare;
+pub mod see;
 
 use anyhow::Result;
 use chromiumoxide::Browser;
@@ -43,7 +44,13 @@ use crate::analyzers::performance::analyze_vitals;
 use crate::crawling::{
     fetch_sitemap_urls, collect_links_bfs, normalize_url, is_html_url,
     extract_crawl_delay, needs_js_rendering, aggregate_scores,
+    fetch_text_capped, truncate_utf8, MAX_BODY_BYTES,
 };
+
+/// Upper bound on how long any single headless navigation + DOM snapshot is
+/// allowed to take before we give up and fall through to the reqwest HTML.
+/// A hung page cannot be left to hold a blocking worker indefinitely.
+const BROWSER_PAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Configuration for the analysis engine.
 #[derive(Debug, Clone)]
@@ -173,25 +180,16 @@ pub async fn analyze(
             page_url.as_str(),
         );
 
-        // Fetch HTML — reqwest first, then headless if enabled and thin
-        // Headers cloned BEFORE .text() consumes the response body
-        let (html_body, response_headers) = match client.get(page_url.as_str()).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                let headers = resp.headers().clone();
-                let body = resp.text().await.unwrap_or_default();
-                (body, headers)
-            }
-            Ok(resp) => {
-                tracing::warn!("HTTP {} fetching {}", resp.status(), page_url);
-                (String::new(), reqwest::header::HeaderMap::new())
-            }
-            Err(e) => {
-                tracing::warn!("Failed to fetch {}: {}", page_url, e);
-                (String::new(), reqwest::header::HeaderMap::new())
-            }
-        };
+        // Fetch HTML — reqwest first, then headless if enabled and thin.
+        // Body is streamed and capped at MAX_BODY_BYTES so one oversized page
+        // cannot explode memory for the whole process (e.g. 100MB inline base64).
+        let (html_body, response_headers) =
+            fetch_text_capped(client, page_url.as_str(), MAX_BODY_BYTES).await;
 
         let mut html_doc = Html::parse_document(&html_body);
+        // The raw HTML string is now owned by the DOM tree — release the
+        // original copy before any further allocations.
+        drop(html_body);
 
         // JS detection and re-fetch — only when enable_js is active
         if config.enable_js {
@@ -201,20 +199,31 @@ pub async fn analyze(
                         "JS-rendered page detected: {} — re-fetching via headless browser",
                         page_url
                     );
-                    match b.new_page(page_url.as_str()).await {
-                        Ok(page) => {
-                            let content_result = page.content().await;
-                            // Close the browser tab to prevent memory leaks —
-                            // chromiumoxide::Page has no Drop impl, so tabs
-                            // persist in the browser process unless explicitly closed.
-                            if let Err(e) = page.close().await {
-                                tracing::warn!("Failed to close JS page for {}: {}", page_url, e);
-                            }
-                            if let Ok(content) = content_result {
-                                html_doc = Html::parse_document(&content);
-                            }
+                    let js_fetch = async {
+                        let page = b.new_page(page_url.as_str()).await?;
+                        let content_result = page.content().await;
+                        // Close the browser tab to prevent memory leaks —
+                        // chromiumoxide::Page has no Drop impl, so tabs
+                        // persist in the browser process unless explicitly closed.
+                        if let Err(e) = page.close().await {
+                            tracing::warn!("Failed to close JS page for {}: {}", page_url, e);
                         }
-                        Err(e) => tracing::warn!("Headless fetch failed for {}: {}", page_url, e),
+                        content_result.map_err(|e| anyhow::anyhow!(e))
+                    };
+                    match tokio::time::timeout(BROWSER_PAGE_TIMEOUT, js_fetch).await {
+                        Ok(Ok(content)) => {
+                            let safe = truncate_utf8(&content, MAX_BODY_BYTES);
+                            html_doc = Html::parse_document(safe);
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!("Headless fetch failed for {}: {}", page_url, e);
+                        }
+                        Err(_) => {
+                            tracing::warn!(
+                                "Headless fetch timed out for {} — falling back to HTTP HTML",
+                                page_url
+                            );
+                        }
                     }
                 }
             }
@@ -271,19 +280,27 @@ pub async fn analyze(
         // Core Web Vitals measurement — only when vitals is active
         if config.vitals {
             if let Some(vb) = vitals_browser {
-                match vb.new_page(page_url.as_str()).await {
-                    Ok(vp) => {
-                        let vitals_results = analyze_vitals(&vp).await;
-                        results.extend(vitals_results);
-                        // Close the browser tab to prevent memory leaks —
-                        // chromiumoxide::Page has no Drop impl, so tabs
-                        // persist in the browser process unless explicitly closed.
-                        if let Err(e) = vp.close().await {
-                            tracing::warn!("Failed to close vitals page for {}: {}", page_url, e);
-                        }
+                let vitals_fetch = async {
+                    let vp = vb.new_page(page_url.as_str()).await?;
+                    let vitals_results = analyze_vitals(&vp).await;
+                    // Close the browser tab to prevent memory leaks —
+                    // chromiumoxide::Page has no Drop impl, so tabs
+                    // persist in the browser process unless explicitly closed.
+                    if let Err(e) = vp.close().await {
+                        tracing::warn!("Failed to close vitals page for {}: {}", page_url, e);
                     }
-                    Err(e) => {
+                    Ok::<_, chromiumoxide::error::CdpError>(vitals_results)
+                };
+                match tokio::time::timeout(BROWSER_PAGE_TIMEOUT, vitals_fetch).await {
+                    Ok(Ok(vitals_results)) => results.extend(vitals_results),
+                    Ok(Err(e)) => {
                         tracing::warn!("Vitals measurement failed for {}: {}", page_url, e);
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            "Vitals measurement timed out for {} — skipping vitals for this page",
+                            page_url
+                        );
                     }
                 }
             }
@@ -340,10 +357,8 @@ async fn fetch_llms_txt(client: &reqwest::Client, base_url: &Url) -> String {
     llms_url.set_query(None);
     llms_url.set_fragment(None);
 
-    match client.get(llms_url.as_str()).send().await {
-        Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
-        _ => String::new(),
-    }
+    let (body, _) = fetch_text_capped(client, llms_url.as_str(), MAX_BODY_BYTES).await;
+    body
 }
 
 /// Fetch and check robots.txt for the given URL.
@@ -353,10 +368,7 @@ pub async fn check_robots(client: &reqwest::Client, page_url: &Url) -> (bool, St
     robots_url.set_query(None);
     robots_url.set_fragment(None);
 
-    let body = match client.get(robots_url.as_str()).send().await {
-        Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
-        _ => String::new(),
-    };
+    let (body, _) = fetch_text_capped(client, robots_url.as_str(), MAX_BODY_BYTES).await;
 
     let user_agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
     let mut matcher = robotstxt::DefaultMatcher::default();

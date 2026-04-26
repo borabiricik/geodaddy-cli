@@ -1,9 +1,34 @@
+use crate::crawling::{BODY_READ_TIMEOUT, MAX_BODY_BYTES};
 use crate::scoring::{AnalysisResult, Status};
+use futures::StreamExt;
 use scraper::{Html, Selector};
 use url::Url;
 use std::time::Duration;
 use quick_xml::de::from_str as xml_from_str;
 use serde::Deserialize;
+
+/// Drain a response body into a `String`, stopping after `MAX_BODY_BYTES`.
+/// Used by analyzers that already have a `reqwest::Response` in hand and just
+/// need the body — we cannot substitute `fetch_text_capped` there because it
+/// takes ownership of the request builder.
+async fn read_body_capped(resp: reqwest::Response) -> String {
+    let mut stream = resp.bytes_stream();
+    let mut buf: Vec<u8> = Vec::new();
+    let read = async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk { Ok(c) => c, Err(_) => break };
+            let remaining = MAX_BODY_BYTES.saturating_sub(buf.len());
+            if remaining == 0 { break; }
+            if chunk.len() > remaining {
+                buf.extend_from_slice(&chunk[..remaining]);
+                break;
+            }
+            buf.extend_from_slice(&chunk);
+        }
+    };
+    let _ = tokio::time::timeout(BODY_READ_TIMEOUT, read).await;
+    String::from_utf8_lossy(&buf).into_owned()
+}
 
 // --- HTML-only analyzers (sync) ---
 
@@ -271,7 +296,7 @@ pub async fn analyze_robots_txt(client: &reqwest::Client, url: &Url) -> Analysis
                     recommendation: "Create a robots.txt file at the site root to control crawler access. Include a Sitemap: directive pointing to your sitemap.xml".to_string(),
                 };
             }
-            let body = resp.text().await.unwrap_or_default();
+            let body = read_body_capped(resp).await;
             let has_sitemap = body
                 .lines()
                 .any(|line| line.to_lowercase().starts_with("sitemap:"));
@@ -329,7 +354,7 @@ pub async fn analyze_sitemap(client: &reqwest::Client, url: &Url) -> AnalysisRes
                     recommendation: "Create a sitemap.xml and reference it in robots.txt to help search engines discover all pages".to_string(),
                 };
             }
-            let body = resp.text().await.unwrap_or_default();
+            let body = read_body_capped(resp).await;
             match xml_from_str::<UrlSet>(&body) {
                 Err(_) => AnalysisResult {
                     check: "tech-sitemap-xml",

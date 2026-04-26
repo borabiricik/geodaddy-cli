@@ -26,9 +26,10 @@
 //! - agent-acp                   — `.well-known/acp.json`
 //! - agent-ap2                   — AP2 via A2A Agent Card
 
+use crate::crawling::{fetch_text_capped_with_builder, MAX_BODY_BYTES};
 use crate::scoring::{AnalysisResult, Status};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE, LINK};
-use scraper::Html;
+use scraper::{Html, Selector};
 use url::Url;
 
 /// Collected site-wide resources needed by agent-category analyzers.
@@ -168,10 +169,11 @@ async fn fetch_body_if_ok(
     if let Some((k, v)) = header {
         req = req.header(k, v);
     }
-    match req.send().await {
-        Ok(resp) if resp.status().is_success() => resp.text().await.ok(),
-        _ => None,
-    }
+    // Body-capped variant so an unbounded /openapi.json or agent-card.json
+    // (several competitor products publish multi-MB OpenAPI specs) cannot
+    // push the worker into GB-scale string allocations.
+    let (body, _) = fetch_text_capped_with_builder(req, MAX_BODY_BYTES).await;
+    if body.is_empty() { None } else { Some(body) }
 }
 
 async fn fetch_first_ok(client: &reqwest::Client, urls: &[Url]) -> Option<String> {
@@ -388,13 +390,43 @@ pub fn analyze_agent_skills(res: &AgentResources) -> AnalysisResult {
 /// WebMCP — in-page tool registration via `navigator.modelContext` or
 /// a `<script type=\"webmcp\">` tag.
 pub fn analyze_webmcp(html_doc: &Html) -> AnalysisResult {
-    let html_text = html_doc.root_element().html();
-    let lower = html_text.to_ascii_lowercase();
+    // Per-script walk instead of serialising the entire DOM to a string:
+    // `Html::root_element().html()` re-materialises every byte of the page
+    // in a fresh allocation, which for a 2–5MB JS-heavy site is 2–5MB of
+    // transient RAM per analyzer call (and this analyzer plus x402 both
+    // did it — compounding under concurrent load).
+    let script_sel = Selector::parse("script").expect("valid");
+    let mut has_webmcp_type = false;
+    let mut has_nav_mc = false;
+    let mut has_register_tool = false;
 
-    // Heuristic markers: WebMCP script tags, navigator.modelContext API use
-    let has_webmcp_type = lower.contains("type=\"webmcp\"") || lower.contains("type='webmcp'");
-    let has_nav_mc = lower.contains("navigator.modelcontext");
-    let has_register_tool = lower.contains("registertool") && lower.contains("modelcontext");
+    for el in html_doc.select(&script_sel) {
+        if let Some(t) = el.value().attr("type") {
+            if t.eq_ignore_ascii_case("webmcp") {
+                has_webmcp_type = true;
+            }
+        }
+        // Only scan the text nodes inside the script — we don't need to
+        // serialise attributes or child elements.
+        for txt in el.text() {
+            let lower = txt.to_ascii_lowercase();
+            if !has_nav_mc && lower.contains("navigator.modelcontext") {
+                has_nav_mc = true;
+            }
+            if !has_register_tool
+                && lower.contains("registertool")
+                && lower.contains("modelcontext")
+            {
+                has_register_tool = true;
+            }
+            if has_nav_mc && has_register_tool {
+                break;
+            }
+        }
+        if has_webmcp_type && has_nav_mc && has_register_tool {
+            break;
+        }
+    }
 
     if has_webmcp_type || has_nav_mc || has_register_tool {
         AnalysisResult {
@@ -504,9 +536,54 @@ pub async fn analyze_x402(
             }
         }
     }
-    // Also sniff HTML for x402 markers
-    let html_text = html_doc.root_element().html().to_ascii_lowercase();
-    if html_text.contains("x402") && html_text.contains("payment") {
+    // Sniff HTML for x402 markers without serialising the whole DOM. We only
+    // care about meta tags, link tags, and inline script text — a full
+    // root_element().html() walk reallocates the entire document for a
+    // couple of substring checks, which is a meaningful memory spike on
+    // JS-heavy sites.
+    let mut saw_x402 = false;
+    let mut saw_payment = false;
+
+    let meta_sel = Selector::parse("meta").expect("valid");
+    for el in html_doc.select(&meta_sel) {
+        for attr in ["name", "property", "content"].iter() {
+            if let Some(v) = el.value().attr(attr) {
+                let lower = v.to_ascii_lowercase();
+                if !saw_x402 && lower.contains("x402") { saw_x402 = true; }
+                if !saw_payment && lower.contains("payment") { saw_payment = true; }
+                if saw_x402 && saw_payment { break; }
+            }
+        }
+        if saw_x402 && saw_payment { break; }
+    }
+
+    if !(saw_x402 && saw_payment) {
+        let link_sel = Selector::parse("link[rel], link[href]").expect("valid");
+        for el in html_doc.select(&link_sel) {
+            for attr in ["rel", "href"].iter() {
+                if let Some(v) = el.value().attr(attr) {
+                    let lower = v.to_ascii_lowercase();
+                    if !saw_x402 && lower.contains("x402") { saw_x402 = true; }
+                    if !saw_payment && lower.contains("payment") { saw_payment = true; }
+                }
+            }
+            if saw_x402 && saw_payment { break; }
+        }
+    }
+
+    if !(saw_x402 && saw_payment) {
+        let script_sel = Selector::parse("script").expect("valid");
+        'outer: for el in html_doc.select(&script_sel) {
+            for txt in el.text() {
+                let lower = txt.to_ascii_lowercase();
+                if !saw_x402 && lower.contains("x402") { saw_x402 = true; }
+                if !saw_payment && lower.contains("payment") { saw_payment = true; }
+                if saw_x402 && saw_payment { break 'outer; }
+            }
+        }
+    }
+
+    if saw_x402 && saw_payment {
         return AnalysisResult {
             check: "agent-x402",
             status: Status::Pass,

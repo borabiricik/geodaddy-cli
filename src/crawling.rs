@@ -1,9 +1,107 @@
+use futures::StreamExt;
+use reqwest::header::HeaderMap;
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
+use std::time::Duration;
 use url::Url;
 
 use crate::scoring::CategoryScores;
+
+/// Hard ceiling on a response body we are willing to load into memory for
+/// analysis. A handful of real-world pages inline base64 images or ship
+/// multi-MB JS payloads — without this cap, `resp.text()` plus the
+/// downstream `scraper::Html` DOM (3–5× the raw HTML size) can push the
+/// backend into GB-scale RAM spikes per request.
+pub const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+
+/// Per-page deadline for any single HTTP body read. A slow server that
+/// dribbles bytes cannot hold a blocking worker forever — once the timer
+/// fires we return what we have (or nothing). Complements
+/// `reqwest::Client::timeout` which only bounds the full request.
+pub const BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Returns the largest prefix of `s` that is valid UTF-8 and at most
+/// `max_bytes` long. Used when truncating strings we already own
+/// (e.g. `chromiumoxide::Page::content()` output).
+pub fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// GET `url` and read its body, capped at `max_bytes`. Never panics and
+/// never allocates beyond the cap, even for multi-GB responses. Returns
+/// empty string + empty headers on network failure or non-success status
+/// so callers can keep a single-path `(body, headers)` shape.
+pub async fn fetch_text_capped(
+    client: &reqwest::Client,
+    url: &str,
+    max_bytes: usize,
+) -> (String, HeaderMap) {
+    fetch_text_capped_with_builder(client.get(url), max_bytes).await
+}
+
+/// Same as `fetch_text_capped`, but accepts a pre-built `RequestBuilder`
+/// so callers can attach headers (Accept, If-None-Match, …) before the
+/// request is sent.
+pub async fn fetch_text_capped_with_builder(
+    req: reqwest::RequestBuilder,
+    max_bytes: usize,
+) -> (String, HeaderMap) {
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("fetch failed: {}", e);
+            return (String::new(), HeaderMap::new());
+        }
+    };
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    if !status.is_success() {
+        return (String::new(), headers);
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buf: Vec<u8> = Vec::new();
+
+    let read = async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("stream read error: {}", e);
+                    break;
+                }
+            };
+            let remaining = max_bytes.saturating_sub(buf.len());
+            if remaining == 0 {
+                tracing::warn!("response body exceeded {} bytes — truncating", max_bytes);
+                break;
+            }
+            if chunk.len() > remaining {
+                buf.extend_from_slice(&chunk[..remaining]);
+                tracing::warn!("response body exceeded {} bytes — truncating", max_bytes);
+                break;
+            }
+            buf.extend_from_slice(&chunk);
+        }
+    };
+
+    if tokio::time::timeout(BODY_READ_TIMEOUT, read).await.is_err() {
+        tracing::warn!("body read timed out — using partial content");
+    }
+
+    // from_utf8_lossy is safe for truncated bodies: we may have cut mid-codepoint
+    // when hitting the cap, but the lossy decoder replaces invalid bytes instead
+    // of panicking. The DOM parser tolerates the replacement characters.
+    (String::from_utf8_lossy(&buf).into_owned(), headers)
+}
 
 // ── Sitemap structs ───────────────────────────────────────────────────────────
 
@@ -37,14 +135,10 @@ pub async fn fetch_sitemap_urls(
     sitemap_url.set_query(None);
     sitemap_url.set_fragment(None);
 
-    let body = client
-        .get(sitemap_url.as_str())
-        .send()
-        .await
-        .ok()?
-        .text()
-        .await
-        .ok()?;
+    let (body, _) = fetch_text_capped(client, sitemap_url.as_str(), MAX_BODY_BYTES).await;
+    if body.is_empty() {
+        return None;
+    }
 
     let mut url_set: UrlSet = quick_xml::de::from_str(&body).ok()?;
 
@@ -119,10 +213,10 @@ pub async fn collect_links_bfs(
         result.push(url_str.clone());
 
         if depth < max_depth {
-            let html_body = match client.get(&url_str).send().await {
-                Ok(resp) if resp.status().is_success() => resp.text().await.unwrap_or_default(),
-                _ => continue,
-            };
+            let (html_body, _) = fetch_text_capped(client, &url_str, MAX_BODY_BYTES).await;
+            if html_body.is_empty() {
+                continue;
+            }
             let html = Html::parse_document(&html_body);
             let base = Url::parse(&url_str).unwrap_or_else(|_| start.clone());
             for link in extract_same_origin_links(&html, &base) {

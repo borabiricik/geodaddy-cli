@@ -7,6 +7,7 @@ use std::time::Duration;
 use geodaddy::beauty::print_beauty_report;
 use geodaddy::beauty::print_beauty_compare_report;
 use geodaddy::compare;
+use geodaddy::see;
 use geodaddy::{AnalysisConfig, analyze};
 
 #[derive(Parser)]
@@ -53,6 +54,15 @@ enum Commands {
         #[arg(num_args = 2..)]
         urls: Vec<String>,
     },
+
+    /// Show what an AI crawler (GPTBot / ClaudeBot / PerplexityBot) sees when
+    /// it visits the page. Defaults to JSON output; pass `--beauty` for the
+    /// human-readable markdown view. Pass `--enable-js` to also compare
+    /// against the JS-rendered view and surface content hidden from AI crawlers.
+    See {
+        /// URL to inspect.
+        url: String,
+    },
 }
 
 #[tokio::main]
@@ -72,6 +82,9 @@ async fn main() -> Result<()> {
     match (&cli.command, &cli.url) {
         (Some(Commands::Compare { urls }), _) => {
             run_compare_flow(&cli, urls).await?;
+        }
+        (Some(Commands::See { url }), _) => {
+            run_see_flow(&cli, url).await?;
         }
         (None, Some(url)) => {
             run_analyze_flow(&cli, url).await?;
@@ -176,6 +189,53 @@ async fn run_analyze_flow(cli: &Cli, url: &str) -> Result<()> {
         if report.score < threshold {
             std::process::exit(1);
         }
+    }
+
+    Ok(())
+}
+
+/// `geodaddy see <url>` — render the page as an AI crawler sees it.
+///
+/// Without `--enable-js`: fetches via reqwest and outputs markdown + stats.
+/// With `--enable-js`: also fetches via headless Chromium and shows the diff
+/// (content hidden from JS-free AI crawlers).
+///
+/// Output format matches the project convention: JSON by default, markdown
+/// when `--beauty` is passed.
+async fn run_see_flow(cli: &Cli, url: &str) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .build()?;
+
+    // Browser is only launched when --enable-js is passed — otherwise we stay
+    // in "pure HTTP, zero chromium download" mode matching the command's intent.
+    let js_data_dir =
+        std::env::temp_dir().join(format!("geodaddy-see-{}", std::process::id()));
+    let browser: Option<Browser> = if cli.enable_js {
+        let mut builder = BrowserConfig::builder();
+        if let Ok(path) = std::env::var("CHROME_PATH") {
+            builder = builder.chrome_executable(path);
+        }
+        builder = builder.no_sandbox().user_data_dir(js_data_dir.clone());
+        let config = builder
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build BrowserConfig: {}", e))?;
+        let (b, mut handler) = Browser::launch(config).await?;
+        tokio::spawn(async move {
+            while let Some(_event) = handler.next().await {}
+        });
+        Some(b)
+    } else {
+        None
+    };
+
+    // Convention match: JSON by default, markdown when --beauty is set.
+    see::run_see(url, cli.beauty, &client, browser.as_ref()).await?;
+
+    if cli.enable_js {
+        let _ = std::fs::remove_dir_all(&js_data_dir);
     }
 
     Ok(())
