@@ -8,6 +8,7 @@ use geodaddy::beauty::print_beauty_report;
 use geodaddy::beauty::print_beauty_compare_report;
 use geodaddy::compare;
 use geodaddy::see;
+use geodaddy::llms_txt;
 use geodaddy::{AnalysisConfig, analyze};
 
 #[derive(Parser)]
@@ -63,6 +64,22 @@ enum Commands {
         /// URL to inspect.
         url: String,
     },
+
+    /// Generate a spec-compliant llms.txt index from a site
+    /// (per https://llmstxt.org). Crawls the site (sitemap-first, BFS
+    /// fallback) and emits a markdown index of every page's title,
+    /// URL, and description. Output goes to stdout; pass `-o <path>`
+    /// to write to a file. Note: this command's output IS the
+    /// llms.txt body — `--beauty` and JSON formatting do not apply.
+    /// The crawl size is bounded by the global `--max-pages` flag
+    /// (default 50 when omitted).
+    LlmsTxt {
+        /// URL to crawl.
+        url: String,
+        /// Write output to this file instead of stdout.
+        #[arg(short = 'o', long = "output", value_name = "PATH")]
+        output: Option<std::path::PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -85,6 +102,9 @@ async fn main() -> Result<()> {
         }
         (Some(Commands::See { url }), _) => {
             run_see_flow(&cli, url).await?;
+        }
+        (Some(Commands::LlmsTxt { url, output }), _) => {
+            run_llms_txt_flow(cli.max_pages, url, output.as_ref()).await?;
         }
         (None, Some(url)) => {
             run_analyze_flow(&cli, url).await?;
@@ -239,6 +259,29 @@ async fn run_see_flow(cli: &Cli, url: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// `geodaddy llms-txt <url>` — generate a spec-compliant llms.txt
+/// index for the site. Reuses the existing reqwest client config.
+/// Resolution: global --max-pages > DEFAULT_MAX_PAGES.
+///
+/// Note: a local `--max-pages` was originally specified in the plan but
+/// removed during execution because clap forbids defining the same long
+/// option name twice (global on `Cli` and local on the `LlmsTxt` variant).
+/// The global flag (with `global = true`) already appears in
+/// `geodaddy llms-txt --help`, so user-facing behavior is unchanged.
+async fn run_llms_txt_flow(
+    global_max: Option<usize>,
+    url: &str,
+    output: Option<&std::path::PathBuf>,
+) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .build()?;
+    let max_pages = global_max.unwrap_or(llms_txt::DEFAULT_MAX_PAGES);
+    llms_txt::run_llms_txt(url, output, max_pages, &client).await
 }
 
 /// Multi-URL compare flow — sequentially analyzes each URL sharing a single

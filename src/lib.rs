@@ -4,6 +4,7 @@ pub mod crawling;
 pub mod beauty;
 pub mod compare;
 pub mod see;
+pub mod llms_txt;
 
 use anyhow::Result;
 use chromiumoxide::Browser;
