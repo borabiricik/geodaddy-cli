@@ -877,3 +877,102 @@ fn test_compare_check_diff_populated() {
     assert!(first["results"].is_array());
     assert_eq!(first["results"].as_array().unwrap().len(), 2, "one entry per site");
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Quick task 260508-g4j — `llms-txt` subcommand integration tests.
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_llms_txt_subcommand_produces_spec_compliant_output() {
+    let mut server = Server::new();
+    mock_site(&mut server);
+
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("llms-txt")
+        .arg(server.url())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0, got {:?} — stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.starts_with("# "),
+        "expected H1 at start, got: {:?}",
+        &stdout[..stdout.len().min(80)]
+    );
+    assert!(
+        stdout.lines().next().unwrap_or("").contains("Test"),
+        "expected H1 to contain mock site title 'Test', got: {:?}",
+        stdout.lines().next()
+    );
+    assert!(
+        stdout.lines().any(|l| l.starts_with("## ")),
+        "expected at least one H2 section, got stdout:\n{}",
+        stdout
+    );
+    let link_line = stdout
+        .lines()
+        .find(|l| l.starts_with("- ["))
+        .unwrap_or_else(|| panic!("expected at least one link line, got:\n{}", stdout));
+    assert!(
+        link_line.contains(&server.url()),
+        "expected link line to reference mock URL {}, got: {}",
+        server.url(),
+        link_line
+    );
+}
+
+#[test]
+fn test_llms_txt_writes_to_output_file_when_o_flag() {
+    let mut server = Server::new();
+    mock_site(&mut server);
+
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let tmp = std::env::temp_dir().join(format!("geodaddy-llms-txt-{}-{}.txt", pid, nanos));
+
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("llms-txt")
+        .arg(server.url())
+        .arg("-o")
+        .arg(&tmp)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0, got {:?} — stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // stdout should be empty (no llms.txt body to stdout when -o is set)
+    assert!(
+        output.stdout.is_empty()
+            || String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        "expected empty stdout when -o is used, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let body = std::fs::read_to_string(&tmp)
+        .unwrap_or_else(|e| panic!("failed to read {}: {}", tmp.display(), e));
+    assert!(
+        body.starts_with("# "),
+        "expected H1 in file, got: {:?}",
+        &body[..body.len().min(80)]
+    );
+
+    let _ = std::fs::remove_file(&tmp);
+}
