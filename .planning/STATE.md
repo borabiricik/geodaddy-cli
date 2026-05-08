@@ -130,9 +130,12 @@ None yet.
 | 260323-vfu | Fix crawling behavior when --max-pages is absent (single-URL default mode) | 2026-03-23 | af98719 | [260323-vfu-fix-crawling-behavior-when-max-pages-is-](./quick/260323-vfu-fix-crawling-behavior-when-max-pages-is-/) |
 | 260323-vxm | Set up GitHub Actions CI and release pipeline (5 cross-platform targets) | 2026-03-23 | c92fe5b | [260323-vxm-set-up-github-actions-release-pipeline-f](./quick/260323-vxm-set-up-github-actions-release-pipeline-f/) |
 | 260329-toh | Release CLI project as version 0.4.0 | 2026-03-29 | 4cf5f23 | [260329-toh-release-cli-project-as-version-0-4-0](./quick/260329-toh-release-cli-project-as-version-0-4-0/) |
+| 260508-g4j | Implement llms-txt subcommand that crawls a site and produces a spec-compliant llms.txt | 2026-05-08 | 6eb33f1 | [260508-g4j-implement-llms-txt-subcommand](./quick/260508-g4j-implement-llms-txt-subcommand/) |
+
+Last activity: 2026-05-08 - Completed quick task 260508-g4j: implement llms-txt subcommand
 
 ## Session Continuity
 
-Last session: 2026-04-16T18:25:26.537Z
-Stopped at: Completed 08-02-PLAN.md (Wave 1 core implementation)
+Last session: 2026-05-08T08:45:00.000Z
+Stopped at: Completed quick task 260508-g4j (llms-txt subcommand)
 Resume file: None
