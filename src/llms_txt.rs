@@ -110,14 +110,49 @@ pub async fn produce_llms_txt(
     }
 
     // 4. Always include the root URL even if no sitemap/BFS pages found.
-    if entries.is_empty() {
+    let only_root_fallback = entries.is_empty();
+    if only_root_fallback {
         if let Some(e) = extract_page_entry(&root_doc, base.as_str()) {
             entries.push(e);
         }
     }
 
-    Ok(format_llms_txt(&site_meta, &entries))
+    // 5. Surface a warning when discovery effectively failed — i.e. the
+    //    crawler only managed to include the root page itself. Two cases:
+    //    (a) entries was already empty before (4), so the fallback added
+    //        one — typically means HTTP 403 / bot block on every fetch.
+    //    (b) sitemap returned exactly one entry that points back at the
+    //        root, leaving us with no additional pages to index.
+    //    Either way, the output is too thin to be useful — appending an
+    //    HTML comment lets users (and the UI) detect the situation
+    //    without breaking the spec-compliant markdown body.
+    let warn_low_discovery = entries.len() <= 1;
+
+    let body = format_llms_txt(&site_meta, &entries);
+    if warn_low_discovery {
+        Ok(append_low_discovery_warning(body))
+    } else {
+        Ok(body)
+    }
 }
+
+/// Appends a sentinel HTML comment to the body. Markdown viewers ignore
+/// it; humans editing the file see the explanation; the UI / clients can
+/// pattern-match the sentinel to render an inline banner.
+fn append_low_discovery_warning(mut body: String) -> String {
+    if !body.ends_with('\n') {
+        body.push('\n');
+    }
+    body.push_str(LOW_DISCOVERY_WARNING);
+    body.push('\n');
+    body
+}
+
+/// Sentinel string the frontend can grep for. Keep stable across releases.
+pub const LOW_DISCOVERY_WARNING: &str =
+    "<!-- geodaddy:warning low-discovery — the crawler reached only the homepage. \
+The site likely blocks automated requests (bot detection / IP filtering), \
+or its sitemap is unreachable. Manual editing recommended. -->";
 
 fn extract_site_meta(doc: &Html, base: &Url) -> SiteMeta {
     let og_site = select_attr(doc, r#"meta[property="og:site_name"]"#, "content");
@@ -412,5 +447,26 @@ mod tests {
     fn test_section_title_from_segment() {
         assert_eq!(title_case_segment("docs"), "Docs");
         assert_eq!(title_case_segment("api-reference"), "Api Reference");
+    }
+
+    #[test]
+    fn test_append_low_discovery_warning_idempotent_terminator() {
+        let body = "# Site\n\n## Pages\n\n- [Home](https://example.com/)\n".to_string();
+        let out = append_low_discovery_warning(body);
+        assert!(
+            out.contains("geodaddy:warning low-discovery"),
+            "warning sentinel missing from output:\n{}",
+            out
+        );
+        // Ends with a newline so concatenating files stays clean.
+        assert!(out.ends_with('\n'));
+    }
+
+    #[test]
+    fn test_warning_sentinel_is_html_comment() {
+        // The sentinel must be a valid HTML comment so it renders as
+        // nothing in markdown viewers but is preserved on disk.
+        assert!(LOW_DISCOVERY_WARNING.starts_with("<!--"));
+        assert!(LOW_DISCOVERY_WARNING.ends_with("-->"));
     }
 }

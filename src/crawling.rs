@@ -118,56 +118,190 @@ struct UrlEntry {
     priority: f64,
 }
 
+/// `<sitemapindex>` envelope — a sitemap that points to other sitemaps.
+/// Real-world hierarchies can be 1-3 levels deep (one index → product/category
+/// shards → leaf urlsets), so recursion has a depth cap.
+#[derive(Deserialize, Debug)]
+struct SitemapIndex {
+    #[serde(default, rename = "sitemap")]
+    sitemaps: Vec<SitemapRef>,
+}
+
+#[derive(Deserialize, Debug)]
+struct SitemapRef {
+    loc: String,
+}
+
 fn default_priority() -> f64 {
     0.5
 }
 
+/// Upper bound on URLs we accumulate from a single sitemap-driven crawl.
+/// Real-world sitemap indexes (e.g. pttavm.com) list 300+ child sitemaps
+/// with thousands of URLs each. We need a generous internal cap so callers
+/// can pick the top N for their own `max_pages` — but not so large that a
+/// pathological site can stall the crawler indefinitely.
+const SITEMAP_INTERNAL_CAP: usize = 5000;
+
+/// Hard ceiling on recursive sitemap-index traversal. Most real-world
+/// hierarchies are 1-2 levels (index → leaf sitemaps); 3 covers the
+/// occasional nested-index edge case while keeping the worst-case
+/// fan-out bounded.
+const SITEMAP_MAX_DEPTH: u8 = 3;
+
 // ── Public functions ──────────────────────────────────────────────────────────
 
-/// Fetches /sitemap.xml and returns URLs sorted by priority (highest first).
-/// Returns None if the sitemap is unavailable or empty (triggers link-following fallback).
+/// Extracts `Sitemap:` directives from a robots.txt body.
+/// Case-insensitive on the directive name; trims surrounding whitespace and
+/// strips `#`-style comments. Returns the URL strings in the order they
+/// appeared. Empty vec if no directives are present.
+pub fn extract_sitemap_directives(robots_body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in robots_body.lines() {
+        // Strip inline comments, then trim
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        if !key.trim().eq_ignore_ascii_case("sitemap") {
+            continue;
+        }
+        let v = value.trim();
+        if !v.is_empty() {
+            out.push(v.to_string());
+        }
+    }
+    out
+}
+
+/// Fetches /robots.txt and returns the URLs listed in `Sitemap:` directives.
+/// Returns empty vec on network failure, missing robots, or no directives.
+pub async fn fetch_robots_sitemap_urls(
+    client: &reqwest::Client,
+    base_url: &Url,
+) -> Vec<String> {
+    let mut robots_url = base_url.clone();
+    robots_url.set_path("/robots.txt");
+    robots_url.set_query(None);
+    robots_url.set_fragment(None);
+    // robots.txt should be tiny; capping at 256KB protects against a
+    // misconfigured server streaming an arbitrarily large file.
+    let (body, _) = fetch_text_capped(client, robots_url.as_str(), 256 * 1024).await;
+    if body.is_empty() {
+        return Vec::new();
+    }
+    extract_sitemap_directives(&body)
+}
+
+/// Discovers URLs from a sitemap, recursing into nested sitemap indexes
+/// up to `SITEMAP_MAX_DEPTH` levels. Accumulates HTML-only URL entries
+/// into `out` until it reaches `SITEMAP_INTERNAL_CAP`. The async recursion
+/// is heap-boxed (Rust requires it for any directly-recursive async fn).
+fn fetch_sitemap_recursive<'a>(
+    client: &'a reqwest::Client,
+    sitemap_url: &'a str,
+    depth: u8,
+    visited: &'a mut HashSet<String>,
+    out: &'a mut Vec<UrlEntry>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a + Send>> {
+    Box::pin(async move {
+        if depth == 0 || out.len() >= SITEMAP_INTERNAL_CAP {
+            return;
+        }
+        if !visited.insert(sitemap_url.to_string()) {
+            return;
+        }
+
+        let (body, _) =
+            fetch_text_capped(client, sitemap_url, MAX_BODY_BYTES).await;
+        if body.is_empty() {
+            return;
+        }
+
+        // Try urlset first. quick_xml's serde driver matches by field name,
+        // so a `<sitemapindex>` body parses to UrlSet { urls: [] } — i.e.
+        // an empty result we then re-try as a SitemapIndex below.
+        if let Ok(url_set) = quick_xml::de::from_str::<UrlSet>(&body) {
+            if !url_set.urls.is_empty() {
+                for e in url_set.urls {
+                    if out.len() >= SITEMAP_INTERNAL_CAP {
+                        return;
+                    }
+                    if is_html_url(&e.loc) {
+                        out.push(e);
+                    }
+                }
+                return;
+            }
+        }
+
+        // Empty urlset → may be a sitemap index. Walk each child sitemap.
+        if let Ok(idx) = quick_xml::de::from_str::<SitemapIndex>(&body) {
+            for sm in idx.sitemaps {
+                if out.len() >= SITEMAP_INTERNAL_CAP {
+                    return;
+                }
+                fetch_sitemap_recursive(client, &sm.loc, depth - 1, visited, out).await;
+            }
+        }
+    })
+}
+
+/// Returns URLs from the site's sitemap(s), sorted by priority (highest first).
+///
+/// Discovery order:
+/// 1. Every `Sitemap:` directive listed in `/robots.txt`
+/// 2. The conventional `/sitemap.xml` location
+///
+/// Each candidate is walked recursively so sitemap indexes (the common
+/// pattern on large e-commerce / CMS sites) yield the URLs from their
+/// child sitemaps. Returns None when no sitemap-discovered URL survives —
+/// callers fall back to link-following BFS in that case.
 pub async fn fetch_sitemap_urls(
     client: &reqwest::Client,
     base_url: &Url,
 ) -> Option<Vec<String>> {
-    let mut sitemap_url = base_url.clone();
-    sitemap_url.set_path("/sitemap.xml");
-    sitemap_url.set_query(None);
-    sitemap_url.set_fragment(None);
+    let mut candidates: Vec<String> = fetch_robots_sitemap_urls(client, base_url).await;
 
-    let (body, _) = fetch_text_capped(client, sitemap_url.as_str(), MAX_BODY_BYTES).await;
-    if body.is_empty() {
+    // Always try /sitemap.xml in addition — many sites omit the directive
+    // even though the file exists at the standard location.
+    let mut default_url = base_url.clone();
+    default_url.set_path("/sitemap.xml");
+    default_url.set_query(None);
+    default_url.set_fragment(None);
+    let default_str = default_url.to_string();
+    if !candidates.iter().any(|c| c == &default_str) {
+        candidates.push(default_str);
+    }
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut entries: Vec<UrlEntry> = Vec::new();
+
+    for sm_url in &candidates {
+        fetch_sitemap_recursive(client, sm_url, SITEMAP_MAX_DEPTH, &mut visited, &mut entries)
+            .await;
+        // Stop after the first candidate that yields URLs — avoids walking
+        // a duplicate sitemap when robots.txt already pointed us at the
+        // canonical one.
+        if !entries.is_empty() {
+            break;
+        }
+    }
+
+    if entries.is_empty() {
         return None;
     }
 
-    let mut url_set: UrlSet = quick_xml::de::from_str(&body).ok()?;
+    entries.sort_by(|a, b| {
+        b.priority
+            .partial_cmp(&a.priority)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
-    // Empty sitemap — trigger link-following fallback
-    if url_set.urls.is_empty() {
-        return None;
-    }
-
-    // Sort by priority descending (highest priority pages first)
-    url_set
-        .urls
-        .sort_by(|a, b| b.priority.partial_cmp(&a.priority).unwrap_or(std::cmp::Ordering::Equal));
-
-    // Filter to HTML-only locs. If a sitemapindex is served at /sitemap.xml,
-    // quick_xml serde deserialises <sitemap><loc> children into UrlEntry structs
-    // (field-name match, not element-name match), so all locs end in .xml.
-    // Returning None here lets the caller fall back to BFS link-following.
-    let html_locs: Vec<String> = url_set
-        .urls
-        .into_iter()
-        .filter(|e| is_html_url(&e.loc))
-        .map(|e| e.loc)
-        .collect();
-
-    if html_locs.is_empty() {
-        return None;
-    }
-
-    Some(html_locs)
+    Some(entries.into_iter().map(|e| e.loc).collect())
 }
 
 /// Extracts same-origin links from an HTML document, resolved against `base`.
@@ -418,6 +552,61 @@ mod tests {
         assert!(result.is_some());
         let url = Url::parse(result.unwrap().as_str()).unwrap();
         assert_eq!(url.path(), "/");
+    }
+
+    #[test]
+    fn test_extract_sitemap_directives_basic() {
+        let body = "User-agent: *\nSitemap: https://example.com/sitemap_index.xml\nDisallow: /admin\n";
+        let urls = extract_sitemap_directives(body);
+        assert_eq!(urls, vec!["https://example.com/sitemap_index.xml"]);
+    }
+
+    #[test]
+    fn test_extract_sitemap_directives_case_insensitive() {
+        let body = "sitemap: https://example.com/a.xml\nSITEMAP: https://example.com/b.xml\nSiteMap: https://example.com/c.xml\n";
+        let urls = extract_sitemap_directives(body);
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.com/a.xml",
+                "https://example.com/b.xml",
+                "https://example.com/c.xml",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extract_sitemap_directives_multiple_and_comments() {
+        let body = "# comments are ignored\nUser-agent: *\nSitemap: https://example.com/a.xml # inline comment\nSitemap: https://example.com/b.xml\n\nSitemap:    \n";
+        let urls = extract_sitemap_directives(body);
+        // 3rd line is empty after trimming the value — drop it.
+        assert_eq!(
+            urls,
+            vec!["https://example.com/a.xml", "https://example.com/b.xml"]
+        );
+    }
+
+    #[test]
+    fn test_extract_sitemap_directives_empty_robots() {
+        assert!(extract_sitemap_directives("").is_empty());
+        assert!(extract_sitemap_directives("User-agent: *\nDisallow: /").is_empty());
+    }
+
+    #[test]
+    fn test_sitemapindex_parses_with_new_struct() {
+        let xml = r#"<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+            <sitemap><loc>https://example.com/sitemap-pages.xml</loc></sitemap>
+            <sitemap><loc>https://example.com/sitemap-blog.xml</loc></sitemap>
+        </sitemapindex>"#;
+        let idx: SitemapIndex = quick_xml::de::from_str(xml).expect("parse");
+        let locs: Vec<&str> = idx.sitemaps.iter().map(|s| s.loc.as_str()).collect();
+        assert_eq!(
+            locs,
+            vec![
+                "https://example.com/sitemap-pages.xml",
+                "https://example.com/sitemap-blog.xml",
+            ]
+        );
     }
 
     #[test]
