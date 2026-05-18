@@ -6,14 +6,15 @@
 //! variant — because llms.txt IS the output format.
 
 use anyhow::{Context, Result};
+use chromiumoxide::Browser;
 use scraper::{Html, Selector};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use url::Url;
 
 use crate::crawling::{
-    collect_links_bfs, fetch_sitemap_urls, fetch_text_capped, is_html_url,
-    normalize_url, MAX_BODY_BYTES,
+    collect_links_bfs_with_browser, fetch_html_maybe_rendered, fetch_sitemap_urls, is_html_url,
+    normalize_url,
 };
 
 /// Default cap on pages crawled for llms.txt generation. Chosen so the
@@ -45,8 +46,9 @@ pub async fn run_llms_txt(
     output_path: Option<&PathBuf>,
     max_pages: usize,
     client: &reqwest::Client,
+    browser: Option<&Browser>,
 ) -> Result<()> {
-    let body = produce_llms_txt(url, max_pages, client).await?;
+    let body = produce_llms_txt(url, max_pages, client, browser).await?;
     match output_path {
         Some(p) => std::fs::write(p, &body)
             .with_context(|| format!("writing llms.txt to {}", p.display()))?,
@@ -56,22 +58,32 @@ pub async fn run_llms_txt(
 }
 
 /// Library-facing: crawl + format. Returns the llms.txt body as a
-/// String (no I/O to stdout). Used by tests and by run_llms_txt.
+/// String (no I/O to stdout). Used by tests and by `run_llms_txt`.
+///
+/// When `browser` is `Some(...)` the crawler runs every HTML fetch
+/// through Chromium so client-side-rendered SPAs (Next.js App Router,
+/// Vite/React/Vue/Svelte SPAs) yield real navigation links instead of
+/// the empty pre-hydration HTML. Sitemap XML still uses plain HTTP —
+/// XML doesn't need a browser and forcing it through one only adds
+/// latency.
 pub async fn produce_llms_txt(
     url: &str,
     max_pages: usize,
     client: &reqwest::Client,
+    browser: Option<&Browser>,
 ) -> Result<String> {
     let base = Url::parse(url)
         .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
 
-    // 1. Site-wide meta from the root page's HTML
-    let (root_html_body, _) =
-        fetch_text_capped(client, base.as_str(), MAX_BODY_BYTES).await;
+    // 1. Site-wide meta from the root page's HTML — JS-render when
+    //    the caller asked for it so SPAs surface a real <title>.
+    let root_html_body =
+        fetch_html_maybe_rendered(client, browser, base.as_str()).await;
     let root_doc = Html::parse_document(&root_html_body);
     let site_meta = extract_site_meta(&root_doc, &base);
 
-    // 2. URL list — sitemap-first, BFS fallback (matches lib::analyze)
+    // 2. URL list — sitemap-first (plain HTTP is fine for XML),
+    //    BFS fallback honours the browser flag.
     let urls: Vec<String> = match fetch_sitemap_urls(client, &base).await {
         Some(mut s) => {
             s.truncate(max_pages);
@@ -79,7 +91,7 @@ pub async fn produce_llms_txt(
         }
         None => {
             tracing::info!("No sitemap.xml found — falling back to link-following");
-            collect_links_bfs(client, &base, 2, Some(max_pages)).await
+            collect_links_bfs_with_browser(client, browser, &base, 2, Some(max_pages)).await
         }
     };
     let urls: Vec<String> = urls.into_iter().filter(|u| is_html_url(u)).collect();
@@ -98,7 +110,7 @@ pub async fn produce_llms_txt(
                 entries.push(e);
             }
         } else {
-            let (b, _) = fetch_text_capped(client, &norm, MAX_BODY_BYTES).await;
+            let b = fetch_html_maybe_rendered(client, browser, &norm).await;
             if b.is_empty() {
                 continue;
             }

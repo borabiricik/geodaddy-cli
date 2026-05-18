@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
             run_see_flow(&cli, url).await?;
         }
         (Some(Commands::LlmsTxt { url, output }), _) => {
-            run_llms_txt_flow(cli.max_pages, url, output.as_ref()).await?;
+            run_llms_txt_flow(cli.max_pages, cli.enable_js, url, output.as_ref()).await?;
         }
         (None, Some(url)) => {
             run_analyze_flow(&cli, url).await?;
@@ -265,6 +265,10 @@ async fn run_see_flow(cli: &Cli, url: &str) -> Result<()> {
 /// index for the site. Reuses the existing reqwest client config.
 /// Resolution: global --max-pages > DEFAULT_MAX_PAGES.
 ///
+/// `--enable-js` opts into headless-browser rendering for every HTML
+/// fetch — necessary for client-side-rendered SPAs (Next.js App Router,
+/// React/Vue/Svelte SPAs) whose navigation links only exist post-hydration.
+///
 /// Note: a local `--max-pages` was originally specified in the plan but
 /// removed during execution because clap forbids defining the same long
 /// option name twice (global on `Cli` and local on the `LlmsTxt` variant).
@@ -272,6 +276,7 @@ async fn run_see_flow(cli: &Cli, url: &str) -> Result<()> {
 /// `geodaddy llms-txt --help`, so user-facing behavior is unchanged.
 async fn run_llms_txt_flow(
     global_max: Option<usize>,
+    enable_js: bool,
     url: &str,
     output: Option<&std::path::PathBuf>,
 ) -> Result<()> {
@@ -281,7 +286,37 @@ async fn run_llms_txt_flow(
         .connect_timeout(Duration::from_secs(10))
         .build()?;
     let max_pages = global_max.unwrap_or(llms_txt::DEFAULT_MAX_PAGES);
-    llms_txt::run_llms_txt(url, output, max_pages, &client).await
+
+    // Browser only spins up when --enable-js is passed. Mirrors the pattern
+    // in run_see_flow: dedicated per-launch user-data-dir so concurrent
+    // CLI invocations don't fight over the Chromium SingletonLock.
+    let js_data_dir =
+        std::env::temp_dir().join(format!("geodaddy-llms-txt-{}", std::process::id()));
+    let browser: Option<Browser> = if enable_js {
+        let mut builder = BrowserConfig::builder();
+        if let Ok(path) = std::env::var("CHROME_PATH") {
+            builder = builder.chrome_executable(path);
+        }
+        builder = builder.no_sandbox().user_data_dir(js_data_dir.clone());
+        let config = builder
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build BrowserConfig: {}", e))?;
+        let (b, mut handler) = Browser::launch(config).await?;
+        tokio::spawn(async move {
+            while let Some(_event) = handler.next().await {}
+        });
+        Some(b)
+    } else {
+        None
+    };
+
+    let result = llms_txt::run_llms_txt(url, output, max_pages, &client, browser.as_ref()).await;
+
+    if enable_js {
+        let _ = std::fs::remove_dir_all(&js_data_dir);
+    }
+
+    result
 }
 
 /// Multi-URL compare flow — sequentially analyzes each URL sharing a single

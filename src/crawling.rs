@@ -1,3 +1,4 @@
+use chromiumoxide::Browser;
 use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use scraper::{Html, Selector};
@@ -7,6 +8,11 @@ use std::time::Duration;
 use url::Url;
 
 use crate::scoring::CategoryScores;
+
+/// Per-page deadline for a headless-browser render. Mirrors the
+/// `BODY_READ_TIMEOUT` we apply to plain reqwest fetches — a hung SPA
+/// must never park a backend worker indefinitely.
+const RENDERED_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Hard ceiling on a response body we are willing to load into memory for
 /// analysis. A handful of real-world pages inline base64 images or ship
@@ -101,6 +107,54 @@ pub async fn fetch_text_capped_with_builder(
     // when hitting the cap, but the lossy decoder replaces invalid bytes instead
     // of panicking. The DOM parser tolerates the replacement characters.
     (String::from_utf8_lossy(&buf).into_owned(), headers)
+}
+
+/// Renders a URL in the headless browser and returns the post-JS HTML.
+/// Mirrors `see::fetch_rendered` so any caller that needs to crawl
+/// client-side-rendered SPA content can opt in without duplicating the
+/// CDP plumbing. Truncates the result at `MAX_BODY_BYTES` to keep
+/// downstream parsers bounded. On any timeout/CDP error returns an
+/// empty string (matches `fetch_text_capped`'s failure shape).
+pub async fn fetch_rendered_html(browser: &Browser, url: &str) -> String {
+    let fetch = async {
+        let page = browser.new_page(url).await?;
+        let _ = page.wait_for_navigation().await;
+        let content = page.content().await?;
+        if let Err(e) = page.close().await {
+            tracing::warn!("Failed to close JS page: {}", e);
+        }
+        Ok::<_, chromiumoxide::error::CdpError>(content)
+    };
+    let content = match tokio::time::timeout(RENDERED_FETCH_TIMEOUT, fetch).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => {
+            tracing::warn!(url, err = %e, "headless fetch failed");
+            return String::new();
+        }
+        Err(_) => {
+            tracing::warn!(url, "headless fetch timed out");
+            return String::new();
+        }
+    };
+    truncate_utf8(&content, MAX_BODY_BYTES).to_string()
+}
+
+/// Single fetch primitive that routes through the headless browser when
+/// `browser` is `Some(...)` and falls back to plain HTTP otherwise.
+/// Callers that need to support both modes (BFS crawler, llms-txt
+/// generator) hit this helper instead of branching themselves.
+pub async fn fetch_html_maybe_rendered(
+    client: &reqwest::Client,
+    browser: Option<&Browser>,
+    url: &str,
+) -> String {
+    match browser {
+        Some(b) => fetch_rendered_html(b, url).await,
+        None => {
+            let (body, _) = fetch_text_capped(client, url, MAX_BODY_BYTES).await;
+            body
+        }
+    }
 }
 
 // ── Sitemap structs ───────────────────────────────────────────────────────────
@@ -320,9 +374,26 @@ pub fn extract_same_origin_links(html: &Html, base: &Url) -> Vec<String> {
 }
 
 /// BFS link-following crawler up to `max_depth`. Returns discovered URLs in
-/// visit order. Respects `max_pages` cap if provided.
+/// visit order. Respects `max_pages` cap if provided. Always uses plain
+/// HTTP; for SPA / client-side-rendered sites call
+/// `collect_links_bfs_with_browser` instead.
 pub async fn collect_links_bfs(
     client: &reqwest::Client,
+    start: &Url,
+    max_depth: u8,
+    max_pages: Option<usize>,
+) -> Vec<String> {
+    collect_links_bfs_with_browser(client, None, start, max_depth, max_pages).await
+}
+
+/// Same as `collect_links_bfs`, but routes each HTML fetch through the
+/// headless browser when `browser` is `Some(...)`. SPA sites that render
+/// their navigation client-side (Next.js App Router, React/Vue/Svelte
+/// SPAs) produce zero anchors via plain HTTP but emit real links once
+/// rendered — this variant is what unblocks them.
+pub async fn collect_links_bfs_with_browser(
+    client: &reqwest::Client,
+    browser: Option<&Browser>,
     start: &Url,
     max_depth: u8,
     max_pages: Option<usize>,
@@ -347,7 +418,7 @@ pub async fn collect_links_bfs(
         result.push(url_str.clone());
 
         if depth < max_depth {
-            let (html_body, _) = fetch_text_capped(client, &url_str, MAX_BODY_BYTES).await;
+            let html_body = fetch_html_maybe_rendered(client, browser, &url_str).await;
             if html_body.is_empty() {
                 continue;
             }
