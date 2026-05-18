@@ -160,11 +160,16 @@ fn append_low_discovery_warning(mut body: String) -> String {
     body
 }
 
-/// Sentinel string the frontend can grep for. Keep stable across releases.
+/// Sentinel string the frontend can grep for. The `geodaddy:warning
+/// low-discovery` prefix is the stable contract — the explanatory tail
+/// can be rewritten freely without breaking detection.
 pub const LOW_DISCOVERY_WARNING: &str =
-    "<!-- geodaddy:warning low-discovery — the crawler reached only the homepage. \
-The site likely blocks automated requests (bot detection / IP filtering), \
-or its sitemap is unreachable. Manual editing recommended. -->";
+    "<!-- geodaddy:warning low-discovery — only the homepage was indexed. \
+Common causes: (1) the site is single-page by design; \
+(2) navigation hydrates client-side — re-run with JS rendering enabled; \
+(3) robots.txt / sitemap.xml are missing or unreachable; \
+(4) the site blocks automated requests (bot detection / datacenter IP filtering). \
+Edit this file manually to list any additional pages you want LLMs to find. -->";
 
 fn extract_site_meta(doc: &Html, base: &Url) -> SiteMeta {
     let og_site = select_attr(doc, r#"meta[property="og:site_name"]"#, "content");
