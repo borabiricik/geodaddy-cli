@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use geodaddy::beauty::print_beauty_report;
 use geodaddy::beauty::print_beauty_compare_report;
+use geodaddy::beauty::{print_beauty_app_report, print_beauty_app_compare_report};
+use geodaddy::appstore;
 use geodaddy::compare;
 use geodaddy::see;
 use geodaddy::llms_txt;
@@ -65,6 +67,24 @@ enum Commands {
         url: String,
     },
 
+    /// Analyze a mobile app's AI recommendability from its App Store or
+    /// Play Store URL. Scores the listing across five categories (listing
+    /// quality, AI answerability, reputation, developer web presence,
+    /// cross-platform presence). Needs no browser and no API keys.
+    App {
+        /// App Store (apps.apple.com/…/idNNN) or Play Store
+        /// (play.google.com/store/apps/details?id=…) listing URL.
+        url: String,
+    },
+
+    /// Compare 2+ apps side-by-side across the app score categories.
+    /// The first URL is treated as your app for --fail-under.
+    AppCompare {
+        /// Store listing URLs to compare (first = your app).
+        #[arg(num_args = 2..)]
+        urls: Vec<String>,
+    },
+
     /// Generate a spec-compliant llms.txt index from a site
     /// (per https://llmstxt.org). Crawls the site (sitemap-first, BFS
     /// fallback) and emits a markdown index of every page's title,
@@ -102,6 +122,12 @@ async fn main() -> Result<()> {
         }
         (Some(Commands::See { url }), _) => {
             run_see_flow(&cli, url).await?;
+        }
+        (Some(Commands::App { url }), _) => {
+            run_app_flow(&cli, url).await?;
+        }
+        (Some(Commands::AppCompare { urls }), _) => {
+            run_app_compare_flow(&cli, urls).await?;
         }
         (Some(Commands::LlmsTxt { url, output }), _) => {
             run_llms_txt_flow(cli.max_pages, cli.enable_js, url, output.as_ref()).await?;
@@ -208,6 +234,77 @@ async fn run_analyze_flow(cli: &Cli, url: &str) -> Result<()> {
     if let Some(threshold) = cli.fail_under {
         if report.score < threshold {
             std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+/// `geodaddy app <store-url>` — analyze a mobile app listing. No browser is
+/// ever launched: both stores serve parseable HTML/JSON to plain HTTP.
+async fn run_app_flow(cli: &Cli, url: &str) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .build()?;
+
+    let report = appstore::analyze_app(url, &client).await?;
+
+    if cli.beauty {
+        print_beauty_app_report(&report);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    if let Some(threshold) = cli.fail_under {
+        if report.score < threshold {
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+/// `geodaddy app-compare <urls...>` — compare apps. Exit-code policy mirrors
+/// website compare: 2 if the first app failed to analyze, 1 if it scores
+/// below --fail-under, 0 otherwise.
+async fn run_app_compare_flow(cli: &Cli, urls: &[String]) -> Result<()> {
+    if urls.len() < 2 {
+        anyhow::bail!("app-compare requires at least 2 store URLs");
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .build()?;
+
+    let first_url = urls[0].clone();
+    let report = appstore::compare_apps(urls, &client).await;
+
+    if cli.beauty {
+        print_beauty_app_compare_report(&report);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    }
+
+    let first_failed = report.errors.iter().any(|e| e.url == first_url);
+    if first_failed {
+        eprintln!("First app failed to analyze; cannot evaluate --fail-under.");
+        std::process::exit(2);
+    }
+
+    if let Some(threshold) = cli.fail_under {
+        let first_app = report
+            .apps
+            .iter()
+            .find(|a| a.url == first_url)
+            .or_else(|| report.apps.first());
+        if let Some(app) = first_app {
+            if app.score < threshold {
+                std::process::exit(1);
+            }
         }
     }
 

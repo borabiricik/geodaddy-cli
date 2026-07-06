@@ -5,6 +5,7 @@ pub mod beauty;
 pub mod compare;
 pub mod see;
 pub mod llms_txt;
+pub mod appstore;
 
 use anyhow::Result;
 use chromiumoxide::Browser;
