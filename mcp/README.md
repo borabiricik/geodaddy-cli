@@ -46,7 +46,7 @@ Run geodaddy GEO/SEO analysis on a URL. Returns a JSON report with overall score
 
 ## How It Works
 
-The MCP server wraps the geodaddy Rust binary as a subprocess. When installed via npm, a postinstall script automatically downloads the correct platform binary from GitHub releases.
+The MCP server wraps the geodaddy Rust binary as a subprocess. It downloads the platform binary matching the package version from GitHub releases, either in postinstall or, when install scripts are blocked (npm 12+, bun, `--ignore-scripts`), on the first tool call. Set `GEODADDY_BIN` to use a binary you installed yourself.
 
 Supported platforms: macOS (Intel & ARM), Linux (x64 & ARM), Windows (x64).
 
@@ -64,8 +64,10 @@ npx vitest run
 ```
 
 The server looks for the geodaddy binary in:
-1. `mcp/bin/geodaddy` — downloaded by postinstall
-2. `target/release/geodaddy` — local dev build
+1. `GEODADDY_BIN` — explicit override
+2. `mcp/bin/geodaddy` — downloaded by postinstall or on first use
+3. `target/release/geodaddy` — local dev build
+4. `geodaddy` on `PATH` — only if the download fails
 
 ## License
 

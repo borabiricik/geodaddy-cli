@@ -526,6 +526,8 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 claude mcp add geodaddy -- npx -y geodaddy-mcp
 ```
 
+Add `--scope project` to share the server with your team through a checked-in `.mcp.json`.
+
 #### Cursor
 
 Go to **Settings > MCP Servers > Add**, then set:
@@ -539,9 +541,12 @@ npm install
 npm run build
 ```
 
-The MCP server looks for the geodaddy binary in two locations:
-1. `mcp/bin/geodaddy` (auto-downloaded via postinstall from GitHub releases)
-2. `target/release/geodaddy` (local dev via `cargo build --release`)
+The MCP server looks for the geodaddy binary in this order:
+1. `GEODADDY_BIN`, if set (for example a CLI installed with `install.sh`)
+2. `mcp/bin/geodaddy` (downloaded from GitHub releases by postinstall, or on first use)
+3. `target/release/geodaddy` (local dev via `cargo build --release`)
+
+If none exists, the first tool call downloads the release matching the package version. This covers package managers that block install scripts (npm 12+, bun, `--ignore-scripts`). If that download fails, a `geodaddy` on `PATH` is used.
 
 ### Available Tool
 
