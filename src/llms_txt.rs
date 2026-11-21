@@ -72,8 +72,7 @@ pub async fn produce_llms_txt(
     client: &reqwest::Client,
     browser: Option<&Browser>,
 ) -> Result<String> {
-    let base = Url::parse(url)
-        .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    let base = crate::parse_http_url(url)?;
 
     // 1. Site-wide meta from the root page's HTML — JS-render when
     //    the caller asked for it so SPAs surface a real <title>.

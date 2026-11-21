@@ -95,8 +95,7 @@ pub async fn analyze(
     js_browser: Option<&Browser>,
     vitals_browser: Option<&Browser>,
 ) -> Result<Report> {
-    let base_url = Url::parse(url)
-        .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    let base_url = parse_http_url(url)?;
 
     // Connectivity check — fail fast if the target is unreachable
     match client.head(base_url.as_str()).send().await {
@@ -174,13 +173,7 @@ pub async fn analyze(
         };
 
         // Check robots.txt per-URL using cached body
-        let user_agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-        let mut robots_matcher = robotstxt::DefaultMatcher::default();
-        let robots_blocked = !robots_matcher.one_agent_allowed_by_robots(
-            &robots_body,
-            user_agent,
-            page_url.as_str(),
-        );
+        let robots_blocked = is_blocked_for_geodaddy(&robots_body, page_url.as_str());
 
         // Fetch HTML — reqwest first, then headless if enabled and thin.
         // Body is streamed and capped at MAX_BODY_BYTES so one oversized page
@@ -363,6 +356,28 @@ async fn fetch_llms_txt(client: &reqwest::Client, base_url: &Url) -> String {
     body
 }
 
+/// Parse a target URL and reject anything that is not http(s), so callers never
+/// score a page that could not be fetched.
+pub fn parse_http_url(url: &str) -> Result<Url> {
+    let parsed = Url::parse(url).map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        anyhow::bail!(
+            "Unsupported URL scheme '{}' in '{}'. Only http:// and https:// URLs can be analyzed.",
+            parsed.scheme(),
+            url
+        );
+    }
+    Ok(parsed)
+}
+
+// robots.txt groups match the bare product token; "geodaddy/0.8.0" never matches `User-agent: geodaddy`.
+const ROBOTS_TOKEN: &str = env!("CARGO_PKG_NAME");
+
+fn is_blocked_for_geodaddy(robots_body: &str, url: &str) -> bool {
+    let mut matcher = robotstxt::DefaultMatcher::default();
+    !matcher.one_agent_allowed_by_robots(robots_body, ROBOTS_TOKEN, url)
+}
+
 /// Fetch and check robots.txt for the given URL.
 pub async fn check_robots(client: &reqwest::Client, page_url: &Url) -> (bool, String) {
     let mut robots_url = page_url.clone();
@@ -372,8 +387,29 @@ pub async fn check_robots(client: &reqwest::Client, page_url: &Url) -> (bool, St
 
     let (body, _) = fetch_text_capped(client, robots_url.as_str(), MAX_BODY_BYTES).await;
 
-    let user_agent = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-    let mut matcher = robotstxt::DefaultMatcher::default();
-    let blocked = !matcher.one_agent_allowed_by_robots(&body, user_agent, page_url.as_str());
+    let blocked = is_blocked_for_geodaddy(&body, page_url.as_str());
     (blocked, body)
+}
+
+#[cfg(test)]
+mod robots_token_tests {
+    use super::is_blocked_for_geodaddy;
+
+    #[test]
+    fn geodaddy_specific_group_blocks() {
+        let robots = "User-agent: geodaddy\nDisallow: /\n";
+        assert!(is_blocked_for_geodaddy(robots, "https://example.com/page"));
+    }
+
+    #[test]
+    fn wildcard_group_blocks() {
+        let robots = "User-agent: *\nDisallow: /\n";
+        assert!(is_blocked_for_geodaddy(robots, "https://example.com/page"));
+    }
+
+    #[test]
+    fn other_bot_group_does_not_block() {
+        let robots = "User-agent: GPTBot\nDisallow: /\n";
+        assert!(!is_blocked_for_geodaddy(robots, "https://example.com/page"));
+    }
 }

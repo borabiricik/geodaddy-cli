@@ -82,8 +82,7 @@ pub async fn produce_report(
     client: &reqwest::Client,
     browser: Option<&Browser>,
 ) -> Result<SeeReport> {
-    let parsed = Url::parse(url)
-        .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    let parsed = crate::parse_http_url(url)?;
 
     // Plain fetch (what AI crawlers see)
     let plain_html = fetch_plain(client, &parsed).await?;
