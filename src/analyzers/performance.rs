@@ -55,7 +55,8 @@ const TBT_JS: &str = r#"() => {
 
 // --- Public entry point ---
 
-/// Measures all 5 Core Web Vitals for an already-navigated chromiumoxide Page.
+/// Measures 5 lab Web Vitals (LCP, FCP, CLS, TTFB, and TBT as a lab proxy for INP)
+/// for an already-navigated chromiumoxide Page.
 /// The page must have completed navigation before this is called.
 /// Returns exactly 5 AnalysisResult entries in order: LCP, FCP, CLS, TTFB, TBT.
 pub async fn analyze_vitals(page: &Page) -> Vec<AnalysisResult> {

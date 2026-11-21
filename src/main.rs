@@ -31,12 +31,12 @@ struct Cli {
     max_pages: Option<usize>,
 
     /// Enable JavaScript rendering for pages detected as JS-heavy.
-    /// Note: --enable-js downloads Chromium (~150MB) on first use.
+    /// Requires an installed Chrome or Chromium (auto-detected; set CHROME_PATH to override).
     #[arg(long, global = true)]
     enable_js: bool,
 
-    /// Measure Core Web Vitals (LCP, FCP, CLS, TTFB, TBT) via headless browser for every page.
-    /// Note: --vitals uses Chromium for measurement (~150MB download on first use).
+    /// Measure lab Web Vitals (LCP, FCP, CLS, TTFB, and TBT as a lab proxy for INP) via headless browser for every page.
+    /// Requires an installed Chrome or Chromium (auto-detected; set CHROME_PATH to override).
     #[arg(long, global = true)]
     vitals: bool,
 
