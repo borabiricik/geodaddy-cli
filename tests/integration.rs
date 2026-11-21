@@ -96,7 +96,7 @@ fn test_json_output_has_score_categories_pages() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .output()
         .unwrap();
 
@@ -126,7 +126,7 @@ fn test_json_output_has_score_categories_pages() {
         "expected json[\"pages\"] to be an array"
     );
     assert!(
-        json["pages"].as_array().unwrap().len() >= 1,
+        !json["pages"].as_array().unwrap().is_empty(),
         "expected at least 1 page in pages array"
     );
 }
@@ -162,7 +162,7 @@ fn test_stdout_is_pure_json() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .output()
         .unwrap();
 
@@ -216,7 +216,7 @@ fn test_progress_to_stderr_sitemap_format() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .arg("--max-pages")
         .arg("10")
         .output()
@@ -264,7 +264,7 @@ fn test_progress_to_stderr_bfs_fallback() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .arg("--max-pages")
         .arg("10")
         .output()
@@ -336,7 +336,7 @@ fn test_max_pages_caps_result() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .arg("--max-pages")
         .arg("2")
         .output()
@@ -385,7 +385,7 @@ fn test_fail_under_zero_exits_zero() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .arg("--fail-under")
         .arg("0")
         .output()
@@ -554,7 +554,7 @@ fn test_non_html_urls_not_in_pages() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .output()
         .unwrap();
 
@@ -975,4 +975,36 @@ fn test_llms_txt_writes_to_output_file_when_o_flag() {
     );
 
     let _ = std::fs::remove_file(&tmp);
+}
+
+// ── URL scheme validation ─────────────────────────────────────────────────────
+
+/// A non-http(s) URL must fail instead of producing a score for a page that
+/// was never fetched.
+#[test]
+fn test_non_http_scheme_is_rejected() {
+    let output = Command::cargo_bin("geodaddy")
+        .unwrap()
+        .arg("file:///etc/hosts")
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "file:// URL should exit non-zero");
+    assert!(output.stdout.is_empty(), "no report should be printed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Unsupported URL scheme"), "stderr: {}", stderr);
+}
+
+#[test]
+fn test_see_and_llms_txt_reject_non_http_scheme() {
+    for subcommand in ["see", "llms-txt"] {
+        let output = Command::cargo_bin("geodaddy")
+            .unwrap()
+            .args([subcommand, "file:///etc/hosts"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{} should reject file:// URLs", subcommand);
+        assert!(output.stdout.is_empty(), "{} should print no output", subcommand);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("Unsupported URL scheme"), "{}: {}", subcommand, stderr);
+    }
 }

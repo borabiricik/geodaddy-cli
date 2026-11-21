@@ -94,7 +94,7 @@ pub fn parse_itunes_result(result: &Value, app_ref: &AppRef) -> AppMetadata {
     let raw_count = result.get("userRatingCount").and_then(|v| v.as_u64());
     let (rating_avg, rating_count) = match (raw_avg, raw_count) {
         (Some(a), Some(0)) if a == 0.0 && is_desktop => (None, None),
-        (Some(a), Some(0)) if a == 0.0 => (None, Some(0)),
+        (Some(0.0), Some(0)) => (None, Some(0)),
         other => other,
     };
 

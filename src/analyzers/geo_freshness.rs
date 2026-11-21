@@ -108,7 +108,7 @@ pub fn analyze_howto_schema(html: &Html) -> AnalysisResult {
         check: "geo-howto-schema",
         status: Status::Warn,
         message: "No HowTo schema found. Consider adding if this page contains step-by-step instructions.".to_string(),
-        recommendation: "Add HowTo JSON-LD schema for instructional content. HowTo schema enables rich results and improves AI search visibility for how-to queries.".to_string(),
+        recommendation: "Add HowTo JSON-LD schema for instructional content so the steps are available as structured data. Note that Google no longer shows HowTo rich results.".to_string(),
     }
 }
 

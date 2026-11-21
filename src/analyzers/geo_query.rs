@@ -191,10 +191,8 @@ fn check_faq(html: &Html) -> AnalysisResult {
 fn has_faq_type(val: &Value) -> bool {
     match val.get("@type") {
         Some(Value::String(s)) if s == "FAQPage" => return true,
-        Some(Value::Array(arr)) => {
-            if arr.iter().any(|t| t.as_str() == Some("FAQPage")) {
-                return true;
-            }
+        Some(Value::Array(arr)) if arr.iter().any(|t| t.as_str() == Some("FAQPage")) => {
+            return true;
         }
         _ => {}
     }

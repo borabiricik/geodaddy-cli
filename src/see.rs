@@ -82,8 +82,7 @@ pub async fn produce_report(
     client: &reqwest::Client,
     browser: Option<&Browser>,
 ) -> Result<SeeReport> {
-    let parsed = Url::parse(url)
-        .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    let parsed = crate::parse_http_url(url)?;
 
     // Plain fetch (what AI crawlers see)
     let plain_html = fetch_plain(client, &parsed).await?;
@@ -262,13 +261,7 @@ fn render_markdown(doc: &Html) -> String {
 
 fn walk(node: NodeRef<Node>, out: &mut String, in_pre: bool) {
     match node.value() {
-        Node::Text(t) => {
-            if in_pre {
-                out.push_str(&t.text);
-            } else {
-                out.push_str(&t.text);
-            }
-        }
+        Node::Text(t) => out.push_str(&t.text),
         Node::Element(el) => {
             let name = el.name();
             match name {

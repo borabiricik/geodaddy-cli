@@ -12,15 +12,30 @@ const GEO_AI_BOT_PERPLEXITYBOT: &str = "geo-ai-bot-perplexitybot";
 const GEO_AI_BOT_GOOGLEOTHER: &str = "geo-ai-bot-googleother";
 const GEO_AI_BOT_BYTESPIDER: &str = "geo-ai-bot-bytespider";
 const GEO_AI_BOT_CCBOT: &str = "geo-ai-bot-ccbot";
+const GEO_AI_BOT_OAI_SEARCHBOT: &str = "geo-ai-bot-oai-searchbot";
+const GEO_AI_BOT_CLAUDE_SEARCHBOT: &str = "geo-ai-bot-claude-searchbot";
+const GEO_AI_BOT_META_WEBINDEXER: &str = "geo-ai-bot-meta-webindexer";
 
-/// (user_agent, check_id, service_description)
-const AI_BOTS: &[(&str, &str, &str)] = &[
-    ("GPTBot", GEO_AI_BOT_GPTBOT, "ChatGPT"),
-    ("ClaudeBot", GEO_AI_BOT_CLAUDEBOT, "Claude"),
-    ("PerplexityBot", GEO_AI_BOT_PERPLEXITYBOT, "Perplexity"),
-    ("GoogleOther", GEO_AI_BOT_GOOGLEOTHER, "Google AI"),
-    ("Bytespider", GEO_AI_BOT_BYTESPIDER, "ByteDance AI"),
-    ("CCBot", GEO_AI_BOT_CCBOT, "Common Crawl (used by many AI systems)"),
+/// What a crawler's robots.txt token actually controls, per each vendor's docs.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum BotRole {
+    /// Builds the index an AI search product cites from; blocking it removes the site from those answers.
+    Search,
+    /// Collects data for model training or research; blocking it does not affect AI search visibility.
+    DataCollection,
+}
+
+/// (user_agent, check_id, what the token controls, role)
+const AI_BOTS: &[(&str, &str, &str, BotRole)] = &[
+    ("OAI-SearchBot", GEO_AI_BOT_OAI_SEARCHBOT, "ChatGPT search", BotRole::Search),
+    ("Claude-SearchBot", GEO_AI_BOT_CLAUDE_SEARCHBOT, "Claude search", BotRole::Search),
+    ("PerplexityBot", GEO_AI_BOT_PERPLEXITYBOT, "Perplexity search", BotRole::Search),
+    ("Meta-WebIndexer", GEO_AI_BOT_META_WEBINDEXER, "Meta AI search", BotRole::Search),
+    ("GPTBot", GEO_AI_BOT_GPTBOT, "OpenAI model training", BotRole::DataCollection),
+    ("ClaudeBot", GEO_AI_BOT_CLAUDEBOT, "Anthropic model training", BotRole::DataCollection),
+    ("GoogleOther", GEO_AI_BOT_GOOGLEOTHER, "Google internal research and development crawls", BotRole::DataCollection),
+    ("Bytespider", GEO_AI_BOT_BYTESPIDER, "ByteDance AI data collection", BotRole::DataCollection),
+    ("CCBot", GEO_AI_BOT_CCBOT, "the Common Crawl dataset used to train many AI models", BotRole::DataCollection),
 ];
 
 const SCHEMA_TARGETS: &[&str] = &["Article", "ItemList", "FAQPage"];
@@ -94,39 +109,64 @@ pub fn analyze_listicle(html: &Html) -> AnalysisResult {
     }
 }
 
-/// GEO-02: Check robots.txt for AI bot access (6 major AI crawlers).
+/// GEO-02: Check robots.txt for AI crawler access.
+///
+/// Search crawlers decide whether a page can be cited in AI search answers, so
+/// blocking them fails. Data-collection crawlers (training, research) do not
+/// affect AI search visibility, so blocking them is reported as a low-weight
+/// warning that explains the trade-off.
 pub fn analyze_ai_bots(robots_body: &str) -> Vec<AnalysisResult> {
     let mut matcher = DefaultMatcher::default();
 
     AI_BOTS
         .iter()
-        .map(|&(user_agent, check_id, service)| {
+        .map(|&(user_agent, check_id, purpose, role)| {
             let allowed =
                 matcher.one_agent_allowed_by_robots(robots_body, user_agent, "/");
 
-            if allowed {
-                AnalysisResult {
+            match (role, allowed) {
+                (BotRole::Search, true) => AnalysisResult {
                     check: check_id,
                     status: Status::Pass,
                     message: format!(
-                        "{} is allowed in robots.txt. Your content can appear in {} search results.",
-                        user_agent, service
+                        "{} is allowed in robots.txt. Your content can appear in {} results.",
+                        user_agent, purpose
                     ),
                     recommendation: String::new(),
-                }
-            } else {
-                AnalysisResult {
+                },
+                (BotRole::Search, false) => AnalysisResult {
                     check: check_id,
                     status: Status::Fail,
                     message: format!(
-                        "{} is blocked in robots.txt. This prevents your content from appearing in {} search results.",
-                        user_agent, service
+                        "{} is blocked in robots.txt. This prevents your content from appearing in {} results.",
+                        user_agent, purpose
                     ),
                     recommendation: format!(
-                        "Remove or modify the Disallow rule for {} in robots.txt to allow {} to index your content for AI-powered search",
-                        user_agent, service
+                        "Remove or modify the Disallow rule for {} in robots.txt so {} can index and cite your content",
+                        user_agent, purpose
                     ),
-                }
+                },
+                (BotRole::DataCollection, true) => AnalysisResult {
+                    check: check_id,
+                    status: Status::Pass,
+                    message: format!(
+                        "{} is allowed in robots.txt. It collects content for {}; it does not control AI search visibility.",
+                        user_agent, purpose
+                    ),
+                    recommendation: String::new(),
+                },
+                (BotRole::DataCollection, false) => AnalysisResult {
+                    check: check_id,
+                    status: Status::Warn,
+                    message: format!(
+                        "{} is blocked in robots.txt. This opts your content out of {} but does not affect AI search visibility.",
+                        user_agent, purpose
+                    ),
+                    recommendation: format!(
+                        "Keep this rule if opting out of {} is intentional. Remove the Disallow rule for {} if you want your content included.",
+                        purpose, user_agent
+                    ),
+                },
             }
         })
         .collect()
@@ -291,32 +331,46 @@ mod tests {
     // --- analyze_ai_bots ---
 
     #[test]
-    fn all_allowed_returns_6_passes() {
+    fn all_allowed_returns_9_passes() {
         let results = analyze_ai_bots("");
-        assert_eq!(results.len(), 6);
+        assert_eq!(results.len(), 9);
         for r in &results {
             assert_eq!(r.status, Status::Pass, "bot {} should pass", r.check);
         }
     }
 
     #[test]
-    fn specific_bot_blocked_returns_fail() {
+    fn training_bot_blocked_returns_warn_not_fail() {
         let robots = "User-agent: GPTBot\nDisallow: /\n";
         let results = analyze_ai_bots(robots);
         let gpt = results.iter().find(|r| r.check == "geo-ai-bot-gptbot").unwrap();
-        assert_eq!(gpt.status, Status::Fail);
+        assert_eq!(gpt.status, Status::Warn);
         assert!(gpt.message.contains("GPTBot"));
-        assert!(gpt.message.contains("ChatGPT"));
+        assert!(gpt.message.contains("does not affect AI search visibility"));
+        let oai = results.iter().find(|r| r.check == "geo-ai-bot-oai-searchbot").unwrap();
+        assert_eq!(oai.status, Status::Pass);
     }
 
     #[test]
-    fn all_blocked_returns_6_fails() {
+    fn search_bot_blocked_returns_fail_even_if_training_bot_allowed() {
+        let robots = "User-agent: OAI-SearchBot\nDisallow: /\n\nUser-agent: GPTBot\nAllow: /\n";
+        let results = analyze_ai_bots(robots);
+        let oai = results.iter().find(|r| r.check == "geo-ai-bot-oai-searchbot").unwrap();
+        assert_eq!(oai.status, Status::Fail);
+        assert!(oai.message.contains("ChatGPT search"));
+        let gpt = results.iter().find(|r| r.check == "geo-ai-bot-gptbot").unwrap();
+        assert_eq!(gpt.status, Status::Pass);
+    }
+
+    #[test]
+    fn all_blocked_fails_search_bots_and_warns_data_collection_bots() {
         let robots = "User-agent: *\nDisallow: /\n";
         let results = analyze_ai_bots(robots);
-        assert_eq!(results.len(), 6);
-        for r in &results {
-            assert_eq!(r.status, Status::Fail, "bot {} should fail", r.check);
-        }
+        assert_eq!(results.len(), 9);
+        let fails = results.iter().filter(|r| r.status == Status::Fail).count();
+        let warns = results.iter().filter(|r| r.status == Status::Warn).count();
+        assert_eq!(fails, 4, "search bots should fail");
+        assert_eq!(warns, 5, "data-collection bots should warn");
     }
 
     // --- analyze_schema_stacking ---

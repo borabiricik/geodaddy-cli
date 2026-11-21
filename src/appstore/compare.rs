@@ -103,7 +103,7 @@ pub fn compute_app_winners(apps: &[AppReport]) -> AppWinners {
         }
         let max = apps
             .iter()
-            .map(|a| extract(a))
+            .map(&extract)
             .fold(f64::NEG_INFINITY, f64::max);
         let top: Vec<&AppReport> = apps
             .iter()
