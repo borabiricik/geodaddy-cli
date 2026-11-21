@@ -47,6 +47,8 @@ pub(crate) fn severity_points(check: &str) -> u32 {
         "geo-entity-about" | "geo-entity-proper-nouns"
         | "geo-query-snippet" | "geo-faq-quality" => 2,
         "geo-listicle" | "geo-schema-stacking" => 5,
+        "geo-ai-bot-gptbot" | "geo-ai-bot-claudebot" | "geo-ai-bot-googleother"
+        | "geo-ai-bot-bytespider" | "geo-ai-bot-ccbot" => 2,
         _ if check.starts_with("geo-ai-bot-") => 10,
         "agent-link-headers"
         | "agent-markdown-negotiation"
@@ -74,7 +76,8 @@ pub fn calculate_score(results: &[AnalysisResult]) -> (f64, CategoryScores) {
     let mut perf_max: u32 = 0;
 
     for result in results {
-        let pts = severity_points(result.check);
+        // Doubled so a Warn earns exactly half even for odd severities.
+        let pts = severity_points(result.check) * 2;
         let earned = match result.status {
             Status::Pass => pts,
             Status::Fail => 0,
@@ -191,6 +194,22 @@ mod tests {
         let (_, cats) = calculate_score(&results);
         assert_eq!(cats.technical, 50.0);
         assert_eq!(cats.content, 100.0);
+    }
+
+    #[test]
+    fn test_warn_on_odd_severity_earns_exact_half() {
+        // tech-meta-description is medium (5 pts), Warn => 2.5 of 5 = 50%
+        let results = vec![make_result("tech-meta-description", Status::Warn)];
+        let (_, cats) = calculate_score(&results);
+        assert_eq!(cats.technical, 50.0);
+    }
+
+    #[test]
+    fn test_search_bots_outweigh_data_collection_bots() {
+        assert_eq!(severity_points("geo-ai-bot-oai-searchbot"), 10);
+        assert_eq!(severity_points("geo-ai-bot-perplexitybot"), 10);
+        assert_eq!(severity_points("geo-ai-bot-gptbot"), 2);
+        assert_eq!(severity_points("geo-ai-bot-ccbot"), 2);
     }
 
     #[test]

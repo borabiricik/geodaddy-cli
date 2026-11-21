@@ -311,13 +311,14 @@ The shape discriminates itself from the single-URL schema by the presence of `si
 
 ### Categories
 
-Results are grouped into 4 categories:
+Results are grouped into 5 categories:
 
 | Category | Prefix | What it covers |
 |----------|--------|----------------|
 | **Technical** | `tech-` | Meta tags, headings, HTTPS, redirects, robots.txt, sitemap |
 | **Content** | `cont-` | Heading structure, alt text, JSON-LD schema, semantic HTML |
 | **GEO** | `geo-` | Listicle detection, AI bot access, schema stacking |
+| **Agent** | `agent-` | Agent-readiness signals: link headers, markdown negotiation, MCP/A2A cards, OAuth discovery |
 | **Performance** | `perf-` | Core Web Vitals — only populated when `--vitals` is used |
 
 ### How Scores Are Calculated
@@ -326,21 +327,21 @@ Each check has a **severity** that determines its point value:
 
 | Severity | Points | Examples |
 |----------|--------|---------|
-| Critical | 10 | H1 presence, HTTPS, mobile viewport, JSON-LD, AI bot access |
+| Critical | 10 | H1 presence, HTTPS, mobile viewport, JSON-LD, AI search crawler access |
 | Medium | 5 | Meta description, redirect chains, alt text, listicle, Core Web Vitals |
-| Minor | 2 | Sitemap presence, semantic HTML elements |
+| Minor | 2 | Sitemap presence, semantic HTML elements, AI training/data-collection crawler access |
 
 Statuses map to points earned:
 
 - **Pass** → full points
-- **Warn** → half points
+- **Warn** → half points (exactly half, also for odd point values)
 - **Fail** → 0 points
 
 Category score = `(points earned / max possible points) × 100`
 
 Overall score:
-- Without `--vitals`: `(technical + content + geo) / 3`
-- With `--vitals`: `(technical + content + geo + performance) / 4`
+- Without `--vitals`: `(technical + content + geo + agent) / 4`
+- With `--vitals`: `(technical + content + geo + agent + performance) / 5`
 
 A category with no applicable checks defaults to `100.0`.
 
@@ -352,8 +353,8 @@ A category with no applicable checks defaults to `100.0`.
 
 | Check ID | Severity | Pass condition |
 |----------|----------|----------------|
-| `tech-meta-title` | Critical | Title tag present, 50–60 characters |
-| `tech-meta-description` | Medium | Meta description present, 120–158 characters |
+| `tech-meta-title` | Critical | Title tag present, 50–60 characters (Unicode characters, not bytes) |
+| `tech-meta-description` | Medium | Meta description present, 120–158 characters (Unicode characters, not bytes) |
 | `tech-heading-h1` | Critical | Exactly one `<h1>` tag |
 | `tech-mobile-viewport` | Critical | `<meta name="viewport" content="width=device-width...">` present |
 | `tech-https` | Critical | Served over HTTPS with no mixed-content resources |
@@ -379,14 +380,17 @@ These checks are specific to AI search engine optimization — helping your cont
 |----------|----------|----------------|
 | `geo-listicle` | Medium | Page uses listicle formatting: numbered headings, "Top N" patterns, ordered lists, or comparison tables |
 | `geo-schema-stacking` | Medium | All three GEO schema types present: `Article`, `ItemList`, `FAQPage` |
-| `geo-ai-bot-gptbot` | Critical | GPTBot (ChatGPT) not blocked in `robots.txt` |
-| `geo-ai-bot-claudebot` | Critical | ClaudeBot (Claude) not blocked in `robots.txt` |
-| `geo-ai-bot-perplexitybot` | Critical | PerplexityBot (Perplexity) not blocked in `robots.txt` |
-| `geo-ai-bot-googleother` | Critical | GoogleOther (Google AI) not blocked in `robots.txt` |
-| `geo-ai-bot-bytespider` | Critical | Bytespider (ByteDance AI) not blocked in `robots.txt` |
-| `geo-ai-bot-ccbot` | Critical | CCBot (Common Crawl) not blocked in `robots.txt` |
+| `geo-ai-bot-oai-searchbot` | Critical | OAI-SearchBot (ChatGPT search) not blocked in `robots.txt` |
+| `geo-ai-bot-claude-searchbot` | Critical | Claude-SearchBot (Claude search) not blocked in `robots.txt` |
+| `geo-ai-bot-perplexitybot` | Critical | PerplexityBot (Perplexity search) not blocked in `robots.txt` |
+| `geo-ai-bot-meta-webindexer` | Critical | Meta-WebIndexer (Meta AI search) not blocked in `robots.txt` |
+| `geo-ai-bot-gptbot` | Minor | GPTBot (OpenAI model training). Blocked → Warn |
+| `geo-ai-bot-claudebot` | Minor | ClaudeBot (Anthropic model training). Blocked → Warn |
+| `geo-ai-bot-googleother` | Minor | GoogleOther (Google internal R&D crawls). Blocked → Warn |
+| `geo-ai-bot-bytespider` | Minor | Bytespider (ByteDance AI data collection). Blocked → Warn |
+| `geo-ai-bot-ccbot` | Minor | CCBot (Common Crawl dataset). Blocked → Warn |
 
-> **Why AI bot checks?** Many sites inadvertently block AI crawlers through catch-all `User-agent: *` directives. If a bot can't read your page, it can't cite it.
+> **Why AI bot checks?** Many sites inadvertently block AI crawlers through catch-all `User-agent: *` directives. If a search crawler can't read your page, the AI search product can't cite it. Vendors use separate tokens for search and for training: blocking `GPTBot` or `ClaudeBot` opts out of model training but does not remove a site from ChatGPT or Claude search, which are governed by `OAI-SearchBot` and `Claude-SearchBot`. Search crawlers fail when blocked; training and data-collection crawlers only warn.
 
 ### Performance Checks
 

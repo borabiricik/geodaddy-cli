@@ -122,7 +122,8 @@ pub fn calculate_app_score(results: &[AnalysisResult]) -> (f64, AppCategoryScore
             continue;
         };
 
-        let pts = app_severity_points(result.check);
+        // Doubled so a Warn earns exactly half even for odd severities.
+        let pts = app_severity_points(result.check) * 2;
         max[idx] += pts;
         earned[idx] += match result.status {
             Status::Pass => pts,
@@ -333,6 +334,13 @@ mod tests {
         ];
         let (overall, _) = calculate_app_score(&results);
         assert!((overall - 80.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn warn_on_odd_severity_earns_exact_half() {
+        // app-web-llms-txt is 5 pts; Warn => 2.5 of 5 = 50%
+        let (_, cats) = calculate_app_score(&[res("app-web-llms-txt", Status::Warn)]);
+        assert_eq!(cats.web_presence, 50.0);
     }
 
     #[test]
