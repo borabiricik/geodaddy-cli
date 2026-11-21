@@ -61,7 +61,7 @@ pub fn analyze_meta_tags(html: &Html) -> Vec<AnalysisResult> {
             recommendation: "Add a <title> tag with 50-60 characters describing the page content".to_string(),
         },
         Some(t) => {
-            let len = t.len();
+            let len = t.chars().count();
             if len < 50 {
                 AnalysisResult {
                     check: "tech-meta-title",
@@ -106,7 +106,7 @@ pub fn analyze_meta_tags(html: &Html) -> Vec<AnalysisResult> {
             recommendation: "Add a meta description of 120-158 characters summarizing the page for search engines".to_string(),
         }
     } else {
-        let len = desc_content.len();
+        let len = desc_content.chars().count();
         if (120..=158).contains(&len) {
             AnalysisResult {
                 check: "tech-meta-description",
@@ -429,6 +429,29 @@ mod tests {
         let results = analyze_meta_tags(&html);
         let r = results.iter().find(|r| r.check == "tech-meta-title").unwrap();
         assert_eq!(r.status, Status::Fail);
+    }
+
+    #[test]
+    fn meta_title_length_counts_characters_not_bytes() {
+        // 55 characters, 110 bytes in UTF-8
+        let title = "ğ".repeat(55);
+        let html = parse(&format!("<html><head><title>{}</title></head></html>", title));
+        let results = analyze_meta_tags(&html);
+        let r = results.iter().find(|r| r.check == "tech-meta-title").unwrap();
+        assert_eq!(r.status, Status::Pass, "{}", r.message);
+    }
+
+    #[test]
+    fn meta_description_length_counts_characters_not_bytes() {
+        // 140 characters, 280 bytes in UTF-8
+        let desc = "ş".repeat(140);
+        let html = parse(&format!(
+            r#"<html><head><meta name="description" content="{}"></head></html>"#,
+            desc
+        ));
+        let results = analyze_meta_tags(&html);
+        let r = results.iter().find(|r| r.check == "tech-meta-description").unwrap();
+        assert_eq!(r.status, Status::Pass, "{}", r.message);
     }
 
     #[test]
