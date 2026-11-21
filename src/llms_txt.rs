@@ -190,7 +190,7 @@ fn extract_page_entry(doc: &Html, url: &str) -> Option<PageEntry> {
                 .ok()
                 .and_then(|u| {
                     u.path_segments()
-                        .and_then(|s| s.last().map(String::from))
+                        .and_then(|mut s| s.next_back().map(String::from))
                 })
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| url.to_string())

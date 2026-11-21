@@ -50,7 +50,7 @@ pub fn analyze_entities(html: &Html) -> Vec<AnalysisResult> {
     }
 
     // geo-entity-about: about or mentions properties in JSON-LD
-    let has_about_mentions = all_json.iter().any(|v| has_about_or_mentions(v));
+    let has_about_mentions = all_json.iter().any(has_about_or_mentions);
     if has_about_mentions {
         results.push(AnalysisResult {
             check: "geo-entity-about",

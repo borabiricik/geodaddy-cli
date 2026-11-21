@@ -107,7 +107,7 @@ pub fn analyze_meta_tags(html: &Html) -> Vec<AnalysisResult> {
         }
     } else {
         let len = desc_content.len();
-        if len >= 120 && len <= 158 {
+        if (120..=158).contains(&len) {
             AnalysisResult {
                 check: "tech-meta-description",
                 status: Status::Pass,

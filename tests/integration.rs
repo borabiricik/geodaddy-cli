@@ -96,7 +96,7 @@ fn test_json_output_has_score_categories_pages() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .output()
         .unwrap();
 
@@ -126,7 +126,7 @@ fn test_json_output_has_score_categories_pages() {
         "expected json[\"pages\"] to be an array"
     );
     assert!(
-        json["pages"].as_array().unwrap().len() >= 1,
+        !json["pages"].as_array().unwrap().is_empty(),
         "expected at least 1 page in pages array"
     );
 }
@@ -162,7 +162,7 @@ fn test_stdout_is_pure_json() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .output()
         .unwrap();
 
@@ -216,7 +216,7 @@ fn test_progress_to_stderr_sitemap_format() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .arg("--max-pages")
         .arg("10")
         .output()
@@ -264,7 +264,7 @@ fn test_progress_to_stderr_bfs_fallback() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .arg("--max-pages")
         .arg("10")
         .output()
@@ -336,7 +336,7 @@ fn test_max_pages_caps_result() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .arg("--max-pages")
         .arg("2")
         .output()
@@ -385,7 +385,7 @@ fn test_fail_under_zero_exits_zero() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .arg("--fail-under")
         .arg("0")
         .output()
@@ -554,7 +554,7 @@ fn test_non_html_urls_not_in_pages() {
 
     let output = Command::cargo_bin("geodaddy")
         .unwrap()
-        .arg(&server.url())
+        .arg(server.url())
         .output()
         .unwrap();
 
