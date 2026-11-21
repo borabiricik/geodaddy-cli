@@ -20,6 +20,7 @@ Open-source GEO (Generative Engine Optimization) analysis tool. Analyzes website
   - [Crawling Modes](#crawling-modes)
   - [Output Modes](#output-modes)
 - [Compare (Competitor Analysis)](#compare-competitor-analysis)
+- [Other Commands](#other-commands)
 - [Scoring](#scoring)
   - [Categories](#categories)
   - [How Scores Are Calculated](#how-scores-are-calculated)
@@ -27,7 +28,7 @@ Open-source GEO (Generative Engine Optimization) analysis tool. Analyzes website
   - [Technical](#technical-checks)
   - [Content](#content-checks)
   - [GEO](#geo-checks)
-  - [Performance (Core Web Vitals)](#performance-checks)
+  - [Performance (lab Web Vitals)](#performance-checks)
 - [JSON Report Schema](#json-report-schema)
 - [CI/CD Integration](#cicd-integration)
 - [MCP Server (AI Tool Integration)](#mcp-server-ai-tool-integration)
@@ -58,7 +59,7 @@ irm https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/install.ps1 
 curl -fsSL https://raw.githubusercontent.com/borabiricik/geodaddy-cli/main/install.cmd -o install.cmd && install.cmd
 ```
 
-### From source (requires Rust 1.83+)
+### From source (requires Rust 1.88+)
 
 ```bash
 git clone https://github.com/borabiricik/geodaddy-cli.git
@@ -115,8 +116,8 @@ geodaddy <URL> [OPTIONS]
 |------|------|---------|-------------|
 | `<URL>` | required | — | The URL to analyze. Supports `http://localhost` and `http://127.0.0.1` for local dev. |
 | `--max-pages <N>` | optional | — | **Enable crawling** and stop after N pages. Without this flag, only the given URL is analyzed. |
-| `--enable-js` | boolean | false | Enable JavaScript rendering for pages detected as JS-heavy. Downloads Chromium (~150 MB) on first use. |
-| `--vitals` | boolean | false | Measure Core Web Vitals (LCP, FCP, CLS, TTFB, TBT) via headless browser. Downloads Chromium (~150 MB) on first use. |
+| `--enable-js` | boolean | false | Enable JavaScript rendering for pages detected as JS-heavy. Requires an installed Chrome or Chromium (auto-detected; set `CHROME_PATH` to override). |
+| `--vitals` | boolean | false | Measure lab Web Vitals (LCP, FCP, CLS, TTFB, and TBT as a lab proxy for INP) via headless browser. Requires an installed Chrome or Chromium (auto-detected; set `CHROME_PATH` to override). |
 | `--beauty` | boolean | false | Output a colored, human-readable report instead of JSON. |
 | `--fail-under <SCORE>` | optional | — | Exit with code `1` if the overall score is below this threshold (0–100). Useful for CI gates. |
 
@@ -285,6 +286,7 @@ Compare returns a stable top-level schema distinct from the single-URL report:
     "technical": "https://mysite.com",
     "content": "https://mysite.com",
     "geo": null,
+    "agent": "https://mysite.com",
     "performance": null
   },
   "check_diff": [
@@ -304,6 +306,36 @@ Compare returns a stable top-level schema distinct from the single-URL report:
 ```
 
 The shape discriminates itself from the single-URL schema by the presence of `sites[]` (vs `pages[]`), so tooling can branch without version sniffing.
+
+## Other Commands
+
+All commands share the global flags above (`--max-pages`, `--enable-js`, `--beauty`, `--fail-under`) where they apply. Run `geodaddy <command> --help` for details.
+
+### `see` — what an AI crawler sees
+
+Fetches the page like a plain HTTP crawler (no JavaScript) and renders it as markdown, so you can see what GPTBot, ClaudeBot or PerplexityBot can actually read. With `--enable-js`, it also renders the page in a headless browser and reports content that only appears after JavaScript runs.
+
+```bash
+geodaddy see https://example.com --beauty
+geodaddy see https://example.com --enable-js
+```
+
+### `app` / `app-compare` — mobile app AI visibility
+
+Scores an App Store or Play Store listing for AI recommendability across five categories: listing quality, AI answerability, reputation, developer web presence and cross-platform presence. No browser or API keys are needed. The command reads the public store listing, searches the iTunes Search API for the app's counterpart on the other store, and analyzes the developer's website.
+
+```bash
+geodaddy app https://apps.apple.com/us/app/example/id123456789 --beauty
+geodaddy app-compare https://apps.apple.com/us/app/mine/id1 https://play.google.com/store/apps/details?id=com.rival
+```
+
+### `llms-txt` — generate an llms.txt
+
+Crawls the site (sitemap first, then link discovery) and prints an [llms.txt](https://llmstxt.org) index of each page's title, URL and description. The crawl is bounded by `--max-pages` (default 50).
+
+```bash
+geodaddy llms-txt https://example.com -o llms.txt
+```
 
 ---
 
@@ -390,7 +422,7 @@ These checks are specific to AI search engine optimization — helping your cont
 
 ### Performance Checks
 
-Only populated when `--vitals` flag is used. Geodaddy launches a headless Chromium instance to measure real browser performance.
+Only populated when `--vitals` flag is used. Geodaddy launches a headless Chrome/Chromium instance and measures lab metrics. Google's Core Web Vitals are LCP, INP and CLS; INP needs real user interaction, so TBT is reported as its lab proxy.
 
 | Check ID | Severity | Pass | Warn | Fail |
 |----------|----------|------|------|------|
@@ -402,7 +434,7 @@ Only populated when `--vitals` flag is used. Geodaddy launches a headless Chromi
 
 Thresholds follow [Google's Web Vitals standards](https://web.dev/vitals/).
 
-> **First run note:** `--vitals` and `--enable-js` both require Chromium. geodaddy will automatically download it (~150 MB) on first use via chromiumoxide's built-in fetcher.
+> **Browser requirement:** `--vitals` and `--enable-js` both need a Chrome or Chromium installation. geodaddy finds it in the usual install locations and on `PATH`; set `CHROME_PATH` to point at a specific binary. It does not download a browser.
 
 ---
 
@@ -418,6 +450,7 @@ Thresholds follow [Google's Web Vitals standards](https://web.dev/vitals/).
     "technical": 85.0,
     "content": 80.0,
     "geo": 75.0,
+    "agent": 40.0,
     "performance": null
   },
   "pages": [
@@ -429,6 +462,7 @@ Thresholds follow [Google's Web Vitals standards](https://web.dev/vitals/).
         "technical": 85.0,
         "content": 80.0,
         "geo": 75.0,
+        "agent": 40.0,
         "performance": null
       },
       "results": [
@@ -473,8 +507,8 @@ echo $?  # 1 if score < 80, 0 if score >= 80
 ```yaml
 - name: GEO Analysis
   run: |
-    curl -L https://github.com/borabiricik/geodaddy-cli/releases/latest/download/geodaddy-linux-x86_64 -o geodaddy
-    chmod +x geodaddy
+    VERSION=v0.8.0  # pin the release you want
+    curl -fsSL "https://github.com/borabiricik/geodaddy-cli/releases/download/${VERSION}/geodaddy-${VERSION}-x86_64-unknown-linux-musl.tar.gz" | tar -xz
     ./geodaddy ${{ env.SITE_URL }} --max-pages 20 --fail-under 70
 ```
 
@@ -591,9 +625,9 @@ cargo run -- http://localhost:3000 --beauty
 ```
 
 Requirements:
-- Rust 1.83 or later (due to `jsonschema` MSRV)
+- Rust 1.88 or later (`rust-version` in `Cargo.toml`)
 - No other system dependencies for the base build
-- Chromium is auto-downloaded only when `--vitals` or `--enable-js` is used
+- An installed Chrome or Chromium only when `--vitals` or `--enable-js` is used
 
 ### Project Structure
 
@@ -608,7 +642,7 @@ src/
     ├── technical.rs     # tech-* checks
     ├── content.rs       # cont-* checks
     ├── geo.rs           # geo-* checks
-    └── performance.rs   # perf-* checks (Core Web Vitals)
+    └── performance.rs   # perf-* checks (lab Web Vitals)
 
 mcp/                     # MCP server (TypeScript)
 ├── src/
@@ -677,7 +711,7 @@ Open an issue at: https://github.com/borabiricik/geodaddy-cli/issues
 When contributing, please keep these in mind:
 
 - **Actionable over informational** — every Warn/Fail result must include a concrete fix recommendation
-- **Local-first** — no network calls beyond the target site (no external APIs, no telemetry)
+- **Local-first** — no network calls beyond the target site (no external APIs, no telemetry). The `app` commands are the one exception: they read public store listings and the iTunes Search API.
 - **JSON-stable** — the `schema_version` field exists so consumers can handle format changes; avoid breaking changes to existing fields
 - **Opt-in complexity** — features requiring Chromium (JS rendering, vitals) stay behind explicit flags
 

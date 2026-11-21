@@ -262,13 +262,7 @@ fn render_markdown(doc: &Html) -> String {
 
 fn walk(node: NodeRef<Node>, out: &mut String, in_pre: bool) {
     match node.value() {
-        Node::Text(t) => {
-            if in_pre {
-                out.push_str(&t.text);
-            } else {
-                out.push_str(&t.text);
-            }
-        }
+        Node::Text(t) => out.push_str(&t.text),
         Node::Element(el) => {
             let name = el.name();
             match name {
