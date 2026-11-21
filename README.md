@@ -553,12 +553,14 @@ The MCP server looks for the geodaddy binary in two locations:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `url` | string | yes | URL to analyze (supports `http://localhost`) |
-| `max_pages` | number | no | Enable site crawling, stop after N pages |
-| `enable_js` | boolean | no | Enable JavaScript rendering |
-| `vitals` | boolean | no | Measure Core Web Vitals |
-| `fail_under` | number | no | Error if overall score is below threshold (0-100) |
+| `url` | string | yes | http(s) URL to analyze (supports `http://localhost`) |
+| `max_pages` | number | no | Enable site crawling, stop after N pages (max 25) |
+| `enable_js` | boolean | no | Enable JavaScript rendering (needs an installed Chrome/Chromium) |
+| `vitals` | boolean | no | Measure lab Web Vitals (LCP, FCP, CLS, TTFB, TBT) |
+| `fail_under` | number | no | Mark the result as an error if the overall score is below the threshold (0-100); the report is still returned |
 | `beauty` | boolean | no | Return human-readable output instead of JSON |
+
+The tool is annotated as read-only, so clients such as Claude Code can run it alongside other read-only calls.
 
 ### Example Prompt
 
