@@ -41,7 +41,7 @@ export function getBinaryPath(
 }
 
 export function buildArgs(params: AnalyzeParams): string[] {
-  const args: string[] = [params.url];
+  const args: string[] = [];
 
   if (params.max_pages !== undefined) {
     args.push("--max-pages", String(params.max_pages));
@@ -59,6 +59,8 @@ export function buildArgs(params: AnalyzeParams): string[] {
     args.push("--beauty");
   }
 
+  // "--" keeps a URL such as "--help" or "app" from being parsed as a flag or subcommand.
+  args.push("--", params.url);
   return args;
 }
 
