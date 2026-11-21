@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { buildArgs, runGeodaddy, type AnalyzeParams } from "./binary.js";
 
-// ~3 s per page plus startup was measured; 25 pages stays inside the 120 s subprocess timeout.
+// ~3 s per page was measured, so 25 pages fit the 120 s subprocess timeout unless the site sets a robots.txt Crawl-delay.
 export const MAX_PAGES_LIMIT = 25;
 
 function isHttpUrl(value: string): boolean {
@@ -78,10 +78,26 @@ export async function analyzeUrl(
   } catch (error: unknown) {
     const err = error as {
       code?: number | string;
+      killed?: boolean;
+      signal?: string | null;
       stdout?: string;
       stderr?: string;
       message?: string;
     };
+
+    if (err.killed) {
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              "geodaddy did not finish in time and was stopped. Try a smaller max_pages, turn off vitals and enable_js, " +
+              "or run the geodaddy CLI directly. Sites with a robots.txt Crawl-delay are crawled more slowly.",
+          },
+        ],
+        isError: true,
+      };
+    }
 
     // geodaddy prints the full report and exits 1 when --fail-under is not met.
     if (params.fail_under !== undefined && err.code === 1 && err.stdout?.trim()) {

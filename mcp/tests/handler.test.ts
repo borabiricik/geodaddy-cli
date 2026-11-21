@@ -45,6 +45,21 @@ describe("analyzeUrl", () => {
     expect(result.content[0].text).toContain('{"score":42}');
   });
 
+  it("explains a timeout instead of returning crawl logs", async () => {
+    const run = vi.fn(async () => {
+      throw Object.assign(new Error("Command failed"), {
+        code: null,
+        killed: true,
+        signal: "SIGTERM",
+        stdout: "",
+        stderr: "INFO geodaddy: Crawling page 1...",
+      });
+    });
+    const result = await analyzeUrl({ url: "https://example.com", max_pages: 25 }, run);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("did not finish in time");
+  });
+
   it("returns stderr without ANSI colors on other failures", async () => {
     const run = vi.fn(async () => {
       throw Object.assign(new Error("Command failed"), {
